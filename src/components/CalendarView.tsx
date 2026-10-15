@@ -1,0 +1,291 @@
+import React, { useMemo, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Dimensions,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Meeting } from '../types/meeting';
+import { formatDateKey, isSameDay, getDaysInMonth } from '../utils/dateUtils';
+
+interface CalendarViewProps {
+  meetings: Meeting[];
+  selectedDate: Date;
+  onSelectDate: (date: Date) => void;
+  onBackToMonth?: () => void;
+}
+
+const WEEK_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+const ITEM_WIDTH = 54;
+
+export const CalendarView: React.FC<CalendarViewProps> = ({
+  meetings,
+  selectedDate,
+  onSelectDate,
+}) => {
+  const scrollViewRef = useRef<ScrollView>(null);
+  const initialScrolledRef = useRef(false);
+
+  // Map ngày -> số cuộc họp & trạng thái
+  const meetingDateMap = useMemo(() => {
+    const map = new Map<string, { count: number; hasUnacknowledged: boolean }>();
+    for (const m of meetings) {
+      const dateKey = formatDateKey(new Date(m.meetingTime));
+      const existing = map.get(dateKey) || { count: 0, hasUnacknowledged: false };
+      existing.count += 1;
+      if (m.status !== 'ACKNOWLEDGED') {
+        existing.hasUnacknowledged = true;
+      }
+      map.set(dateKey, existing);
+    }
+    return map;
+  }, [meetings]);
+
+  // Chỉ sinh các ngày trong tháng đó (1 .. 28/30/31)
+  const daysInMonth = useMemo(() => {
+    const y = selectedDate.getFullYear();
+    const m = selectedDate.getMonth();
+    const count = getDaysInMonth(y, m);
+    const list: Array<{
+      date: Date;
+      dateKey: string;
+      dayOfWeekName: string;
+      dayNumber: number;
+      isWeekend: boolean;
+    }> = [];
+
+    for (let day = 1; day <= count; day++) {
+      const d = new Date(y, m, day);
+      const dow = d.getDay(); // 0 = CN, 1 = T2 ... 6 = T7
+      const dowIndex = dow === 0 ? 6 : dow - 1;
+
+      list.push({
+        date: d,
+        dateKey: formatDateKey(d),
+        dayNumber: day,
+        dayOfWeekName: WEEK_DAYS[dowIndex],
+        isWeekend: dow === 0 || dow === 6,
+      });
+    }
+    return list;
+  }, [selectedDate.getFullYear(), selectedDate.getMonth()]);
+
+  // Tự động cuộn đến ngày đang chọn trong tháng
+  useEffect(() => {
+    const index = daysInMonth.findIndex((item) => isSameDay(item.date, selectedDate));
+    if (index >= 0 && scrollViewRef.current) {
+      const screenWidth = Dimensions.get('window').width;
+      const targetX = Math.max(0, index * ITEM_WIDTH - screenWidth / 2 + ITEM_WIDTH / 2);
+      scrollViewRef.current.scrollTo({
+        x: targetX,
+        animated: initialScrolledRef.current,
+      });
+      initialScrolledRef.current = true;
+    }
+  }, [selectedDate, daysInMonth]);
+
+  const rawMonthTitle = selectedDate.toLocaleDateString('vi-VN', {
+    month: 'long',
+    year: 'numeric',
+  });
+  const monthTitle = rawMonthTitle.charAt(0).toUpperCase() + rawMonthTitle.slice(1);
+
+  return (
+    <View style={styles.container}>
+      {/* Tiêu đề tháng hiện tại */}
+      <View style={styles.monthHeaderRow}>
+        <Text style={styles.monthTitleText}>{monthTitle}</Text>
+      </View>
+
+      {/* Dải các ngày trượt ngang GIỚI HẠN CHỈ TRONG THÁNG ĐÓ */}
+      <ScrollView
+        ref={scrollViewRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        decelerationRate="fast"
+      >
+        {daysInMonth.map((item, idx) => {
+          const isSelected = isSameDay(item.date, selectedDate);
+          const eventInfo = meetingDateMap.get(item.dateKey);
+          const hasMeetings = !!eventInfo && eventInfo.count > 0;
+
+          return (
+            <TouchableOpacity
+              key={idx}
+              style={styles.dayItem}
+              onPress={() => onSelectDate(item.date)}
+              activeOpacity={0.7}
+            >
+              {/* Thứ trong tuần */}
+              <Text
+                style={[
+                  styles.dayOfWeekText,
+                  item.isWeekend && styles.dayOfWeekWeekend,
+                  isSelected && styles.dayOfWeekSelected,
+                ]}
+              >
+                {item.dayOfWeekName}
+              </Text>
+
+              {/* Vòng tròn số ngày: Màu xanh Apple tươi sáng khi chọn, KHÔNG CÓ Ô ĐEN */}
+              <View
+                style={[
+                  styles.dayCircle,
+                  hasMeetings && styles.dayCircleHasMeetings,
+                  isSelected && styles.dayCircleSelected,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.dayNumber,
+                    hasMeetings && styles.dayNumberHasMeetings,
+                    isSelected && styles.dayNumberSelected,
+                  ]}
+                >
+                  {item.dayNumber}
+                </Text>
+
+                {/* Huy hiệu số cuộc hẹn */}
+                {hasMeetings && eventInfo.count > 1 && !isSelected && (
+                  <View style={styles.countBadgeMini}>
+                    <Text style={styles.countBadgeMiniText}>{eventInfo.count}</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Chấm tròn chỉ thị bên dưới ngày có lịch */}
+              <View style={styles.dotsSlot}>
+                {hasMeetings ? (
+                  <View
+                    style={[
+                      styles.activeDot,
+                      eventInfo.hasUnacknowledged
+                        ? styles.dotUnacknowledged
+                        : styles.dotAcknowledged,
+                      isSelected && styles.dotSelected,
+                    ]}
+                  />
+                ) : null}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    paddingTop: 4,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  monthHeaderRow: {
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 6,
+  },
+  monthTitleText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0A2540',
+    letterSpacing: -0.3,
+  },
+  scrollContent: {
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  dayItem: {
+    width: ITEM_WIDTH,
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  dayOfWeekText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#94A3B8',
+    marginBottom: 3,
+  },
+  dayOfWeekWeekend: {
+    color: '#D97706',
+  },
+  dayOfWeekSelected: {
+    color: '#2563EB',
+    fontWeight: '800',
+  },
+  dayCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  dayCircleHasMeetings: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+  },
+  // Ô khi chọn: Đổi từ màu đen sang màu xanh Apple hiện đại
+  dayCircleSelected: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  dayNumber: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  dayNumberHasMeetings: {
+    color: '#1E40AF',
+    fontWeight: '900',
+  },
+  dayNumberSelected: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  countBadgeMini: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#2563EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  countBadgeMiniText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  dotsSlot: {
+    height: 5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 1,
+  },
+  activeDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  dotUnacknowledged: {
+    backgroundColor: '#D97706',
+  },
+  dotAcknowledged: {
+    backgroundColor: '#059669',
+  },
+  dotSelected: {
+    backgroundColor: '#2563EB',
+  },
+});

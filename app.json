@@ -1,25 +1,51 @@
 {
   "expo": {
-    "name": "calender",
-    "slug": "calender",
+    "name": "CEO Voice Calendar",
+    "slug": "nhac-lich-giong-noi",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.company.ceovoicecalendar",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Ứng dụng cần quyền nhận diện giọng nói để ghi lại lịch họp của lãnh đạo.",
+        "NSMicrophoneUsageDescription": "Ứng dụng cần quyền micro để ghi lại lệnh đặt lịch bằng lời nói.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
     },
     "android": {
+      "package": "com.company.ceovoicecalendar",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0A192F",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.VIBRATE",
+        "android.permission.WAKE_LOCK"
+      ],
       "predictiveBackGestureEnabled": false
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "plugins": [
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#6366F1"
+        }
+      ],
+      "expo-sqlite",
+      "expo-speech-recognition"
+    ]
   }
 }
