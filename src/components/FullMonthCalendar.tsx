@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Meeting } from '../types/meeting';
@@ -21,10 +22,10 @@ interface FullMonthCalendarProps {
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
   onBackToYear?: () => void;
-  onMonthChange?: (date: Date) => void;
+  onMonthChange: (date: Date) => void;
   onSimulateAlarm: (meeting: Meeting) => void;
   onDeleteMeeting: (id: string) => void;
-  onSendTestNotification?: () => void;
+  onSendTestNotification?: () => Promise<boolean>;
 }
 
 const WEEK_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
@@ -38,17 +39,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
   onDeleteMeeting,
   onSendTestNotification,
 }) => {
-  const [currentMonthDate, setCurrentMonthDate] = useState<Date>(new Date(selectedDate));
-
-  // Đồng bộ tháng hiển thị nếu ngày được chọn đổi sang tháng khác
-  useEffect(() => {
-    if (
-      selectedDate.getMonth() !== currentMonthDate.getMonth() ||
-      selectedDate.getFullYear() !== currentMonthDate.getFullYear()
-    ) {
-      setCurrentMonthDate(new Date(selectedDate));
-    }
-  }, [selectedDate]);
+  const currentMonthDate = selectedDate;
 
   // Map ngày -> số cuộc họp & trạng thái để tô màu nổi bật
   const meetingDateMap = useMemo(() => {
@@ -76,16 +67,16 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
   // Điều hướng tháng
   const handlePrevMonth = () => {
     const d = new Date(currentMonthDate);
+    d.setDate(1);
     d.setMonth(d.getMonth() - 1);
-    setCurrentMonthDate(d);
-    onMonthChange?.(d);
+    onMonthChange(d);
   };
 
   const handleNextMonth = () => {
     const d = new Date(currentMonthDate);
+    d.setDate(1);
     d.setMonth(d.getMonth() + 1);
-    setCurrentMonthDate(d);
-    onMonthChange?.(d);
+    onMonthChange(d);
   };
 
   const rawMonthOnly = currentMonthDate.toLocaleDateString('vi-VN', {
@@ -142,9 +133,11 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
   const todayDayName = dayNames[today.getDay()];
   const todayFormattedDate = `${todayDayName}, ${today.getDate()} tháng ${today.getMonth() + 1}`;
 
-  const handleTestNotification = () => {
-    if (onSendTestNotification) {
-      onSendTestNotification();
+  const handleTestNotification = async () => {
+    const sent = await onSendTestNotification?.();
+    if (!sent) {
+      Alert.alert('Chưa gửi được thông báo', 'Hãy kiểm tra quyền thông báo trong Cài đặt thiết bị. Bản web không hỗ trợ thông báo nhắc lịch.');
+      return;
     }
     setNotificationSent(true);
     setTimeout(() => setNotificationSent(false), 2500);

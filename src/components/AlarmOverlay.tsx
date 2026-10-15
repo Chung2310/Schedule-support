@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -22,8 +22,8 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
   meeting,
   onDismiss,
 }) => {
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const rippleAnim = useRef(new Animated.Value(0)).current;
+  const [pulseAnim] = useState(() => new Animated.Value(1));
+  const [rippleAnim] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     if (visible) {
@@ -125,7 +125,7 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
           <View style={styles.voiceBubble}>
             <Ionicons name="mic-circle" size={22} color="#0A2540" />
             <Text style={styles.voiceText}>
-              Đang phát âm: "{meeting.voiceText}"
+              Đang phát âm: “{meeting.voiceText}”
             </Text>
           </View>
 

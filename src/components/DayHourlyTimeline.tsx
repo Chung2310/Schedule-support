@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -33,8 +33,8 @@ export const DayHourlyTimeline: React.FC<DayHourlyTimelineProps> = ({
   onSlotPress,
   style,
 }) => {
-  const slideAnim = useRef(new Animated.Value(18)).current;
-  const opacityAnim = useRef(new Animated.Value(0.2)).current;
+  const [slideAnim] = useState(() => new Animated.Value(18));
+  const [opacityAnim] = useState(() => new Animated.Value(0.2));
   const dateKey = formatDateKey(date);
 
   // Hiệu ứng animation trượt nhẹ lên mượt mà khi đổi ngày

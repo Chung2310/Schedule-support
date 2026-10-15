@@ -21,12 +21,23 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start --port 8088",
     "android": "expo start --android --port 8088",
-    "ios": "expo start --ios --port 8088"
+    "ios": "expo start --ios --port 8088",
+    "build:ios": "npx eas-cli@latest build --platform ios --profile production",
+    "build:ios:preview": "npx eas-cli@latest build --platform ios --profile preview",
+    "build:ios:simulator": "npx eas-cli@latest build --platform ios --profile preview",
+    "deploy:ios": "npx eas-cli@latest build --platform ios --profile production --auto-submit",
+    "submit:ios": "npx eas-cli@latest submit --platform ios --profile production",
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test",
+    "legal:build": "node scripts/build-privacy-policy.cjs"
   },
   "private": true
 }

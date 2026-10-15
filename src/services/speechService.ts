@@ -72,7 +72,7 @@ export const SpeechService = {
     if (Platform.OS === 'web') return;
     try {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    } catch (e) {
+    } catch {
       // Haptics not available or permitted
     }
   },
@@ -84,7 +84,7 @@ export const SpeechService = {
     if (Platform.OS === 'web') return;
     try {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e) {
+    } catch {
       // ignore
     }
   },

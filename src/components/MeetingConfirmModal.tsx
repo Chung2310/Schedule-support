@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,9 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ParsedMeetingResult } from '../services/nlpParser';
-import { SpeechService } from '../services/speechService';
 import { AppSettings } from '../types/settings';
 
 interface MeetingConfirmModalProps {
@@ -27,26 +25,22 @@ interface MeetingConfirmModalProps {
   }) => void;
 }
 
-export const MeetingConfirmModal: React.FC<MeetingConfirmModalProps> = ({
+export const MeetingConfirmModal: React.FC<MeetingConfirmModalProps> = (props) => {
+  if (!props.visible || !props.parsedData) return null;
+  return <MeetingConfirmForm key={`${props.parsedData.title}-${props.parsedData.datetime}`} {...props} />;
+};
+
+const MeetingConfirmForm: React.FC<MeetingConfirmModalProps> = ({
   visible,
   parsedData,
   settings,
   onClose,
   onConfirm,
 }) => {
-  const [title, setTitle] = useState('');
-  const [date, setDate] = useState<Date>(new Date());
-  const [advanceNotice, setAdvanceNotice] = useState(15);
-  const [repeatInterval, setRepeatInterval] = useState(5);
-
-  useEffect(() => {
-    if (parsedData && visible) {
-      setTitle(parsedData.title);
-      setDate(new Date(parsedData.datetime));
-      setAdvanceNotice(settings.defaultAdvanceNoticeMinutes || 15);
-      setRepeatInterval(settings.defaultRepeatIntervalMinutes || 5);
-    }
-  }, [parsedData, visible, settings]);
+  const [title, setTitle] = useState(parsedData?.title ?? '');
+  const [date, setDate] = useState<Date>(() => parsedData ? new Date(parsedData.datetime) : new Date());
+  const [advanceNotice] = useState(settings.defaultAdvanceNoticeMinutes || 15);
+  const [repeatInterval] = useState(settings.defaultRepeatIntervalMinutes || 5);
 
   if (!parsedData) return null;
 

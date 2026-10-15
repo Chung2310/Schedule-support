@@ -1,0 +1,44 @@
+{
+  "title": "Chính sách quyền riêng tư",
+  "appName": "CEO Voice Calendar",
+  "updatedAt": "15/10/2026",
+  "intro": "CEO Voice Calendar giúp bạn tự quản lý lịch hẹn trên thiết bị. Ứng dụng không có tài khoản và không có máy chủ của đội phát triển để nhận hoặc lưu dữ liệu lịch hẹn của bạn.",
+  "sections": [
+    {
+      "title": "1. Lịch hẹn và cài đặt",
+      "paragraphs": [
+        "Tiêu đề, thời gian, nội dung nhắc, trạng thái cuộc hẹn và cài đặt được lưu cục bộ trên thiết bị. Bản di động dùng SQLite; bản web dùng bộ nhớ của trình duyệt. Đội phát triển không nhận dữ liệu này qua máy chủ riêng.",
+        "Ứng dụng hiện không tích hợp quảng cáo, công cụ phân tích hành vi hoặc theo dõi người dùng giữa các ứng dụng."
+      ]
+    },
+    {
+      "title": "2. Nhập lịch bằng giọng nói",
+      "paragraphs": [
+        "Ứng dụng chỉ bắt đầu dùng micro sau khi bạn bấm nút mic và cấp quyền. Trạng thái đang nghe được hiển thị trên màn hình; bạn có thể bấm dừng hoặc đóng cửa sổ bất cứ lúc nào.",
+        "Nhận diện giọng nói do dịch vụ của hệ điều hành hoặc trình duyệt thực hiện. Trên iOS, dịch vụ nhận diện của Apple có thể gửi âm thanh đến máy chủ Apple để xử lý. Trên Android hoặc web, nhà cung cấp dịch vụ nhận diện trên thiết bị hoặc trình duyệt có thể xử lý âm thanh qua mạng. Việc này phụ thuộc thiết bị, ngôn ngữ và cài đặt của nhà cung cấp.",
+        "Đội phát triển không vận hành máy chủ nhận diện giọng nói và ứng dụng không tạo tệp ghi âm để lưu trữ. Văn bản được nhận diện hiển thị để bạn kiểm tra; nội dung lịch được lưu cục bộ khi bạn xác nhận. Bạn có thể từ chối quyền micro hoặc nhận diện giọng nói và nhập lịch bằng bàn phím."
+      ]
+    },
+    {
+      "title": "3. Thông báo và giọng đọc",
+      "paragraphs": [
+        "Nhắc lịch được đặt trên thiết bị bằng thông báo của hệ điều hành. Nội dung cuộc hẹn có thể xuất hiện trên màn hình khóa hoặc trung tâm thông báo. Bạn có thể tắt thông báo hoặc ẩn bản xem trước trong Cài đặt thiết bị.",
+        "Giọng đọc được sử dụng khi ứng dụng đang mở. Khi ứng dụng đã đóng hoặc thiết bị đang khóa, việc nhắc lịch dựa trên thông báo của hệ điều hành và phụ thuộc quyền thông báo, âm lượng, chế độ im lặng và chế độ tập trung của bạn."
+      ]
+    },
+    {
+      "title": "4. Lưu giữ và xóa dữ liệu",
+      "paragraphs": [
+        "Bạn quản lý và xóa từng cuộc hẹn ngay trong ứng dụng. Dữ liệu cục bộ còn lại có thể được xóa bằng cách gỡ ứng dụng; trên web, bạn có thể xóa dữ liệu trang trong trình duyệt.",
+        "Hệ điều hành có thể sao lưu dữ liệu ứng dụng theo cài đặt sao lưu của bạn. Việc quản lý hoặc xóa các bản sao lưu thuộc cài đặt và chính sách của nhà cung cấp hệ điều hành. Đội phát triển không có quyền truy cập các bản sao lưu đó."
+      ]
+    },
+    {
+      "title": "5. Quyền truy cập và liên hệ",
+      "paragraphs": [
+        "Ứng dụng chỉ cần quyền micro và nhận diện giọng nói cho tính năng nhập bằng lời nói, cùng quyền thông báo cho việc nhắc lịch. Bạn có thể thay đổi hoặc thu hồi các quyền này trong Cài đặt thiết bị.",
+        "Nếu cần hỗ trợ hoặc có câu hỏi về quyền riêng tư, hãy dùng đường dẫn Hỗ trợ trên trang ứng dụng tại cửa hàng mà bạn đã tải ứng dụng. Chính sách này sẽ được cập nhật khi cách xử lý dữ liệu của ứng dụng thay đổi."
+      ]
+    }
+  ]
+}

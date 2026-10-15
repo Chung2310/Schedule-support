@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
+  AppState,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -41,8 +43,9 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   selectedDate,
   settings,
 }) => {
-  const [transcript, setTranscript] = useState('');
+  const [transcript, setTranscript] = useState(initialText);
   const [isListening, setIsListening] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Điều chỉnh thời gian nếu muốn
@@ -51,16 +54,17 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const inputRef = useRef<TextInput>(null);
 
   // Animation trượt sheet nhẹ nhàng chuẩn iOS
-  const sheetSlideAnim = useRef(new Animated.Value(300)).current;
+  const [sheetSlideAnim] = useState(() => new Animated.Value(300));
 
   const isNativeSTT = STTService.isNativeAvailable();
+  const stopListening = useCallback(() => {
+    STTService.stopListening();
+    setIsListening(false);
+    setIsStarting(false);
+  }, []);
 
   useEffect(() => {
     if (visible) {
-      setTranscript(initialText || '');
-      setTimeOffsetMinutes(0);
-      setErrorMessage(null);
-
       Animated.timing(sheetSlideAnim, {
         toValue: 0,
         duration: 220,
@@ -69,20 +73,18 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch (e) {}
+      } catch {}
 
-      // Nếu có native STT thì bật nghe trực tiếp, nếu không thì focus ô nhập để dùng mic bàn phím
-      if (isNativeSTT) {
-        startListening();
-      } else {
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 300);
-      }
-    } else {
-      stopListening();
     }
-  }, [visible, initialText]);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'background') stopListening();
+    });
+    // Opening a calendar slot does not start the microphone. The user taps mic explicitly.
+    return () => {
+      subscription.remove();
+      stopListening();
+    };
+  }, [visible, initialText, sheetSlideAnim, stopListening]);
 
   // Bộ phân tích ngôn ngữ tự nhiên chạy trực tiếp từ lời nói người dùng
   const parsed = useMemo(() => {
@@ -113,10 +115,11 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   // Bắt đầu thu âm giọng nói từ micro
   const startListening = async () => {
+    if (isStarting) return;
     setErrorMessage(null);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch (e) {}
+    } catch {}
 
     // Trường hợp chạy trong Expo Go (chưa build native dev client)
     if (!isNativeSTT) {
@@ -125,8 +128,10 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
       return;
     }
 
+    setIsStarting(true);
     const success = await STTService.startListening({
       onStart: () => {
+        setIsStarting(false);
         setIsListening(true);
       },
       onResult: (text) => {
@@ -134,35 +139,38 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
         setTimeOffsetMinutes(0);
       },
       onError: (err) => {
+        setIsStarting(false);
         setIsListening(false);
         if (err === 'PERMISSION_DENIED') {
-          setErrorMessage('Vui lòng cấp quyền Micro trong Cài đặt thiết bị.');
+          setErrorMessage('Bạn có thể cấp quyền Micro và Nhận diện giọng nói trong Cài đặt thiết bị, hoặc nhập lịch bằng bàn phím.');
         } else {
           setErrorMessage('Không nhận diện được giọng nói. Bạn hãy bấm mic trên bàn phím nhé.');
           inputRef.current?.focus();
         }
       },
       onEnd: () => {
+        setIsStarting(false);
         setIsListening(false);
       },
     });
 
     if (!success) {
+      setIsStarting(false);
       setIsListening(false);
       inputRef.current?.focus();
     }
   };
 
-  const stopListening = () => {
-    STTService.stopListening();
-    setIsListening(false);
+  const handleClose = () => {
+    stopListening();
+    onClose();
   };
 
   const handleAdjustMinutes = (delta: number) => {
     setTimeOffsetMinutes((prev) => prev + delta);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch (e) {}
+    } catch {}
   };
 
   // Xác nhận lưu lịch
@@ -171,7 +179,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e) {}
+    } catch {}
 
     stopListening();
 
@@ -202,7 +210,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const hasContent = transcript.trim().length > 0;
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.backdrop}>
           <KeyboardAvoidingView
@@ -224,7 +232,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               <View style={styles.headerRow}>
                 <Text style={styles.headerTitle}>Thêm Lịch Hẹn</Text>
                 <TouchableOpacity
-                  onPress={onClose}
+                  onPress={handleClose}
                   style={styles.closeBtn}
                   activeOpacity={0.7}
                   accessibilityLabel="Đóng"
@@ -233,6 +241,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                 </TouchableOpacity>
               </View>
 
+              <ScrollView style={styles.formScroll} keyboardShouldPersistTaps="handled">
               {/* Khu vực Micro đơn giản, rõ ràng */}
               <View style={styles.micContainer}>
                 <TouchableOpacity
@@ -241,6 +250,9 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     isListening && styles.micButtonListening,
                   ]}
                   onPress={isListening ? stopListening : startListening}
+                  disabled={isStarting}
+                  accessibilityRole="button"
+                  accessibilityLabel={isListening ? 'Dừng nhận diện giọng nói' : 'Bắt đầu nhận diện giọng nói'}
                   activeOpacity={0.8}
                 >
                   <Ionicons
@@ -249,6 +261,11 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     color="#FFFFFF"
                   />
                 </TouchableOpacity>
+
+                <Text accessibilityLiveRegion="polite" style={[styles.micStatusText, isListening && styles.micStatusTextListening]}>
+                  {isStarting ? 'Đang chuẩn bị micro…' : isListening ? 'Đang nghe · Bấm để dừng' : 'Bấm mic để nói hoặc nhập bằng bàn phím'}
+                </Text>
+                <Text style={styles.voicePrivacyText}>Dịch vụ nhận diện của thiết bị có thể xử lý âm thanh qua mạng. Đội phát triển không nhận hay lưu bản ghi âm.</Text>
 
                 {errorMessage ? (
                   <Text style={styles.errorText}>{errorMessage}</Text>
@@ -334,6 +351,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   {hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
                 </Text>
               </TouchableOpacity>
+              </ScrollView>
             </Animated.View>
           </KeyboardAvoidingView>
         </View>
@@ -349,10 +367,12 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   keyboardView: {
+    flex: 1,
     width: '100%',
     justifyContent: 'flex-end',
   },
   sheet: {
+    maxHeight: '95%',
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
@@ -360,6 +380,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
   },
+  formScroll: { flexShrink: 1 },
   dragHandle: {
     width: 36,
     height: 4,
@@ -413,6 +434,7 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     fontWeight: '600',
   },
+  voicePrivacyText: { fontSize: 12, lineHeight: 17, color: '#64748B', textAlign: 'center', marginTop: 6, maxWidth: 340 },
   errorText: {
     fontSize: 12,
     color: '#DC2626',

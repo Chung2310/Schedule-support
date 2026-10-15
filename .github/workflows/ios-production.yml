@@ -1,0 +1,116 @@
+name: iOS Production
+
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-production-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check reminder and storage regressions
+        run: npm test
+
+      - name: Generate public privacy policy
+        run: |
+          npm run legal:build
+          git diff --exit-code -- docs/privacy-policy.html
+
+      - name: Check Expo dependencies and configuration
+        run: npx expo-doctor
+
+  build-and-submit:
+    name: Build signed iOS app and upload to App Store Connect
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check release configuration
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const app = JSON.parse(fs.readFileSync('app.json', 'utf8')).expo;
+          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+          const bundleIdentifier = app?.ios?.bundleIdentifier;
+          const projectId = app?.extra?.eas?.projectId;
+          const appStoreId = process.env.ASC_APP_ID?.trim();
+          const expoToken = process.env.EXPO_TOKEN?.trim();
+
+          if (!bundleIdentifier) {
+            throw new Error('Set ios.bundleIdentifier in app.json to the app ID registered with Apple.');
+          }
+          if (!projectId) {
+            throw new Error('Link this app to EAS and set expo.extra.eas.projectId in app.json.');
+          }
+          if (!/^\d+$/.test(appStoreId || '')) {
+            throw new Error('Add ASC_APP_ID to GitHub Actions secrets (the numeric App Store Connect Apple ID).');
+          }
+          if (!expoToken) {
+            throw new Error('Add EXPO_TOKEN to GitHub Actions secrets.');
+          }
+
+          eas.submit ??= {};
+          eas.submit.production ??= {};
+          eas.submit.production.ios ??= {};
+          eas.submit.production.ios.ascAppId = appStoreId;
+          eas.build.production.env ??= {};
+          for (const key of ['EXPO_PUBLIC_PRIVACY_POLICY_URL', 'EXPO_PUBLIC_SUPPORT_URL']) {
+            const value = process.env[key]?.trim();
+            if (!value) continue;
+            const allowed = key === 'EXPO_PUBLIC_SUPPORT_URL' ? /^(https:\/\/|mailto:)/i : /^https:\/\//i;
+            if (!allowed.test(value)) throw new Error(`Invalid public URL: ${key}`);
+            eas.build.production.env[key] = value;
+          }
+          fs.writeFileSync('eas.json', `${JSON.stringify(eas, null, 2)}\n`);
+          NODE
+        env:
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
+          EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
+
+      - name: Build and submit with EAS
+        run: npx eas-cli@latest build --platform ios --profile production --non-interactive --wait --auto-submit
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
+          EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}

@@ -1,15 +1,14 @@
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { Meeting } from '../types/meeting';
 import { AppSettings } from '../types/settings';
 import { SpeechService } from './speechService';
 import { StorageService } from './storage';
 import { isSameDay } from '../utils/dateUtils';
+import { buildReminderPlan } from '../utils/reminderPlan';
 
-// Hiển thị thông báo dạng Banner + Âm thanh nổi bật
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
     shouldShowBanner: true,
@@ -20,284 +19,177 @@ Notifications.setNotificationHandler({
 const NOTIFICATION_CATEGORY_ID = 'MEETING_ALARM_ACTIONS';
 const NOTIFICATION_CHANNEL_ID = 'ceo_meeting_alarms';
 const DAILY_BRIEFING_ID = 'ceo_daily_schedule_briefing';
+const DISMISS_ACTION = 'DISMISS_ACTION';
 
-type AlarmTriggerCallback = (meeting: Meeting) => void;
+interface AlarmCallbacks {
+  onAlarm: (meeting: Meeting) => void;
+  onAcknowledged: (meeting: Meeting) => void;
+  onNotificationOpen: (meeting: Meeting) => void;
+}
 
-/**
- * Xây dựng nội dung thông báo tổng hợp lịch hôm nay theo tổ chức chuyên nghiệp,
- * phân chia rõ ràng theo buổi Sáng / Chiều / Tối giúp người xem nắm bắt ngay lập tức.
- */
-export function buildTodayScheduleBriefing(todayMeetings: Meeting[]): {
-  title: string;
-  subtitle: string;
-  body: string;
-  todayCount: number;
-} {
+export function buildTodayScheduleBriefing(todayMeetings: Meeting[], date = new Date()) {
   const count = todayMeetings.length;
-  const now = new Date();
-  const dateFormatted = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-  if (count === 0) {
-    return {
-      title: `📅 Lịch Trình Hôm Nay (${dateFormatted})`,
-      subtitle: 'Lịch trống',
-      body: 'Hôm nay không có lịch hẹn nào. Lịch trình của bạn đang hoàn toàn trống.',
-      todayCount: 0,
-    };
-  }
-
-  // Sắp xếp theo thứ tự thời gian tăng dần
+  const dateFormatted = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
   const sorted = [...todayMeetings].sort(
     (a, b) => new Date(a.meetingTime).getTime() - new Date(b.meetingTime).getTime()
   );
-
-  const morning: Meeting[] = [];
-  const afternoon: Meeting[] = [];
-  const evening: Meeting[] = [];
-
-  for (const m of sorted) {
-    const hours = new Date(m.meetingTime).getHours();
-    if (hours < 12) {
-      morning.push(m);
-    } else if (hours < 18) {
-      afternoon.push(m);
-    } else {
-      evening.push(m);
-    }
-  }
-
-  const sections: string[] = [];
-
-  const formatMeetingLine = (m: Meeting) => {
-    const d = new Date(m.meetingTime);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const statusNote = m.status === 'ACKNOWLEDGED' ? ' [✓ Đã nhớ]' : '';
-    return `• ${hh}:${mm} - ${m.title}${statusNote}`;
-  };
-
-  if (morning.length > 0) {
-    sections.push(`☀️ SÁNG (${morning.length}):\n` + morning.map(formatMeetingLine).join('\n'));
-  }
-
-  if (afternoon.length > 0) {
-    sections.push(`🌤️ CHIỀU (${afternoon.length}):\n` + afternoon.map(formatMeetingLine).join('\n'));
-  }
-
-  if (evening.length > 0) {
-    sections.push(`🌙 TỐI (${evening.length}):\n` + evening.map(formatMeetingLine).join('\n'));
-  }
+  const sections = [
+    { label: '☀️ SÁNG', matches: (hour: number) => hour < 12 },
+    { label: '🌤️ CHIỀU', matches: (hour: number) => hour >= 12 && hour < 18 },
+    { label: '🌙 TỐI', matches: (hour: number) => hour >= 18 },
+  ].flatMap(({ label, matches }) => {
+    const meetings = sorted.filter((meeting) => matches(new Date(meeting.meetingTime).getHours()));
+    if (meetings.length === 0) return [];
+    const lines = meetings.map((meeting) => {
+      const time = new Date(meeting.meetingTime);
+      const timeStr = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
+      return `• ${timeStr} - ${meeting.title}${meeting.status === 'ACKNOWLEDGED' ? ' [✓ Đã nhớ]' : ''}`;
+    });
+    return [`${label} (${meetings.length}):\n${lines.join('\n')}`];
+  });
 
   return {
     title: `📅 Lịch Hôm Nay (${dateFormatted}) • ${count} cuộc hẹn`,
-    subtitle: `Tổng hợp ${count} cuộc hẹn trong ngày`,
-    body: sections.join('\n\n'),
+    subtitle: count === 0 ? 'Lịch trống' : `Tổng hợp ${count} cuộc hẹn trong ngày`,
+    body: count === 0 ? 'Hôm nay không có lịch hẹn nào.' : sections.join('\n\n'),
     todayCount: count,
   };
 }
 
 class AlarmManagerService {
-  private activeReminders: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  private scheduledNotificationIds: Map<string, string[]> = new Map();
-  private onAlarmTriggerCallback: AlarmTriggerCallback | null = null;
-  private isInitialized = false;
+  private activeReminders = new Map<string, ReturnType<typeof setTimeout>>();
+  private callbacks: AlarmCallbacks | null = null;
+  private initialization: Promise<void> | null = null;
+  private notificationQueue: Promise<unknown> = Promise.resolve();
+  private handledResponses = new Set<string>();
+  private responseSubscription: ReturnType<typeof Notifications.addNotificationResponseReceivedListener> | null = null;
 
-  async init(callback?: AlarmTriggerCallback) {
-    if (callback) {
-      this.onAlarmTriggerCallback = callback;
+  async init(callbacks: AlarmCallbacks): Promise<void> {
+    this.callbacks = callbacks;
+    if (Platform.OS === 'web') return;
+    if (!this.initialization) {
+      this.initialization = this.initializeNotifications().catch((error) => {
+        this.initialization = null;
+        console.warn('Could not initialize notifications:', error);
+      });
     }
-    if (this.isInitialized) return;
-
-    if (Platform.OS !== 'web') {
-      try {
-        // Xin quyền thông báo hệ thống
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-
-        // Cấu hình Kênh thông báo Android (Chạy nền, ưu tiên cao nhất, rung và reo khi khóa máy)
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
-            name: 'Báo thức lịch họp',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 500, 250, 500],
-            lightColor: '#0A2540',
-            sound: 'default',
-            enableVibrate: true,
-            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-            bypassDnd: true,
-          });
-        }
-
-        // Cấu hình Nút hành động nhanh "ĐÃ NHỚ" ngay trên màn hình khóa / banner thông báo
-        await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY_ID, [
-          {
-            identifier: 'DISMISS_ACTION',
-            buttonTitle: 'Đã nhớ (Tắt báo thức)',
-            options: {
-              isDestructive: false,
-              isAuthenticationRequired: false,
-            },
-          },
-        ]);
-
-        // Lắng nghe khi người dùng bấm vào thông báo nền hoặc bấm nút "Đã nhớ"
-        Notifications.addNotificationResponseReceivedListener(async (response) => {
-          const meetingId = response.notification.request.content.data?.meetingId as string | undefined;
-          if (meetingId && typeof meetingId === 'string') {
-            console.log(`Notification tapped for meeting: ${meetingId}`);
-            await this.acknowledgeAndDismiss(meetingId);
-          }
-        });
-      } catch (e) {
-        console.warn('Could not initialize background notifications', e);
-      }
-    }
-
-    this.isInitialized = true;
+    await this.initialization;
   }
 
-  setAlarmCallback(callback: AlarmTriggerCallback) {
-    this.onAlarmTriggerCallback = callback;
+  private async initializeNotifications() {
+    // Register before reading the saved response, so a cold-start action is not lost.
+    if (!this.responseSubscription) {
+      this.responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+        void this.handleResponse(response).catch((error) => console.warn('Notification action failed:', error));
+      });
+    }
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
+        name: 'Nhắc lịch hẹn',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 500, 250, 500],
+        sound: 'default',
+      });
+    }
+    await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY_ID, [{
+      identifier: DISMISS_ACTION,
+      buttonTitle: 'Đã nhớ',
+      options: { opensAppToForeground: true, isDestructive: false },
+    }]);
+
+    const permission = await Notifications.getPermissionsAsync();
+    if (!permission.granted && permission.canAskAgain) {
+      await Notifications.requestPermissionsAsync();
+    }
+
+    const response = Notifications.getLastNotificationResponse();
+    if (response) await this.handleResponse(response);
+  }
+
+  private async handleResponse(response: Notifications.NotificationResponse) {
+    const request = response.notification.request;
+    const meetingId = request.content.data?.meetingId;
+    if (typeof meetingId !== 'string') return;
+    const responseKey = `${request.identifier}:${response.actionIdentifier}`;
+    if (this.handledResponses.has(responseKey)) return;
+    this.handledResponses.add(responseKey);
+    try {
+      if (response.actionIdentifier === DISMISS_ACTION) {
+        await this.acknowledgeAndDismiss(meetingId);
+      } else if (response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+        const meeting = (await StorageService.getMeetings()).find((item) => item.id === meetingId);
+        if (meeting) this.callbacks?.onNotificationOpen(meeting);
+      }
+      // Do not clear a newer response that arrived while this one was being handled.
+      const last = Notifications.getLastNotificationResponse();
+      if (last?.notification.request.identifier === request.identifier &&
+          last.actionIdentifier === response.actionIdentifier) {
+        Notifications.clearLastNotificationResponse();
+      }
+    } catch (error) {
+      this.handledResponses.delete(responseKey);
+      throw error;
+    }
+  }
+
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const task = this.notificationQueue.then(work);
+    this.notificationQueue = task.catch(() => undefined);
+    return task;
   }
 
   calculateFirstReminder(meetingTime: Date, advanceNoticeMinutes: number): Date {
-    return new Date(meetingTime.getTime() - advanceNoticeMinutes * 60 * 1000);
+    return new Date(meetingTime.getTime() - advanceNoticeMinutes * 60_000);
   }
 
-  /**
-   * Lên lịch THÔNG BÁO NỀN (Background Notifications) cho toàn bộ chu kỳ nhắc nhở
-   * Hoạt động ngay cả khi ứng dụng bị đóng hoàn toàn hoặc điện thoại đang khóa màn hình.
-   * Thông báo chứa đầy đủ thông tin: Giờ họp, báo trước, nội dung và các lịch tiếp theo hôm nay.
-   */
-  async scheduleBackgroundAlarms(meeting: Meeting, settings: AppSettings, allMeetings?: Meeting[]) {
-    if (Platform.OS === 'web') return;
-
-    try {
-      // Hủy các thông báo nền cũ của cuộc họp này nếu có
-      await this.cancelBackgroundNotifications(meeting.id);
-
-      const reminderDate = new Date(meeting.firstReminderTime);
-      const meetingStart = new Date(meeting.meetingTime).getTime();
-      const now = Date.now();
-      const notificationIds: string[] = [];
-
-      const meetingDate = new Date(meeting.meetingTime);
-      const isMeetingToday = isSameDay(meetingDate, new Date());
-      const hh = String(meetingDate.getHours()).padStart(2, '0');
-      const mm = String(meetingDate.getMinutes()).padStart(2, '0');
-      const timeStr = `${hh}:${mm}`;
-
-      // Lấy danh sách cuộc họp để hiển thị ngữ cảnh các lịch tiếp theo trong ngày
-      const meetingsList = allMeetings || (await StorageService.getMeetings());
-      const subsequentToday = meetingsList
-        .filter(
-          (m) =>
-            m.id !== meeting.id &&
-            isSameDay(new Date(m.meetingTime), meetingDate) &&
-            new Date(m.meetingTime).getTime() > meetingStart
-        )
-        .sort((a, b) => new Date(a.meetingTime).getTime() - new Date(b.meetingTime).getTime());
-
-      let nextAgendaText = '';
-      if (subsequentToday.length > 0) {
-        const nextList = subsequentToday
-          .slice(0, 2)
-          .map((m) => {
-            const d = new Date(m.meetingTime);
-            return `• ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} ${m.title}`;
-          })
-          .join('\n');
-        nextAgendaText = `\n\n📌 Tiếp theo hôm nay:\n${nextList}`;
-      }
-
-      // 1. Lên lịch thông báo lần đầu tiên (Báo trước X phút)
-      if (reminderDate.getTime() > now) {
-        const title = `⏰ [${timeStr}] ${meeting.title}`;
-        const subtitle = `Nhắc lịch trước ${meeting.advanceNoticeMinutes} phút`;
-        const body = `🕒 Giờ họp: ${timeStr}${isMeetingToday ? ' Hôm nay' : ''} (Báo trước ${meeting.advanceNoticeMinutes}p)\n📋 ${meeting.voiceText}${nextAgendaText}\n👉 Chạm để xem hoặc bấm 'Đã nhớ' để tắt`;
-
-        const id = await Notifications.scheduleNotificationAsync({
-          content: {
-            title,
-            subtitle,
-            body,
-            categoryIdentifier: NOTIFICATION_CATEGORY_ID,
-            data: { meetingId: meeting.id },
-            sound: true,
-          },
-          trigger: (Platform.OS === 'android'
-            ? { date: reminderDate, channelId: NOTIFICATION_CHANNEL_ID }
-            : reminderDate) as any,
-        });
-        notificationIds.push(id);
-      }
-
-      // 2. Lên lịch trước các lần NHẮC LẶP trong nền (tối đa 4 lần lặp trong nền)
-      const repeatInterval = meeting.repeatIntervalMinutes || settings.defaultRepeatIntervalMinutes || 5;
-      const repeatIntervalMs = repeatInterval * 60 * 1000;
-      let nextNagTime = Math.max(now, reminderDate.getTime()) + repeatIntervalMs;
-      let count = 1;
-
-      while (count <= 4 && nextNagTime < meetingStart) {
-        const nagDate = new Date(nextNagTime);
-        const nagTitle = `⏰ [Nhắc lại - ${timeStr}] ${meeting.title}`;
-        const nagSubtitle = `Lần nhắc thứ ${count}`;
-        const nagBody = `⚠️ Chưa xác nhận: ${meeting.title} (${timeStr})\n🔔 Đang nhắc lại mỗi ${repeatInterval}p\n👉 Bấm 'Đã nhớ' để dừng báo thức`;
-
-        const nagId = await Notifications.scheduleNotificationAsync({
-          content: {
-            title: nagTitle,
-            subtitle: nagSubtitle,
-            body: nagBody,
-            categoryIdentifier: NOTIFICATION_CATEGORY_ID,
-            data: { meetingId: meeting.id },
-            sound: true,
-          },
-          trigger: (Platform.OS === 'android'
-            ? { date: nagDate, channelId: NOTIFICATION_CHANNEL_ID }
-            : nagDate) as any,
-        });
-        notificationIds.push(nagId);
-        nextNagTime += repeatIntervalMs;
-        count++;
-      }
-
-      this.scheduledNotificationIds.set(meeting.id, notificationIds);
-    } catch (e) {
-      console.warn('scheduleBackgroundAlarms error:', e);
-    }
-  }
-
-  /**
-   * Lên lịch THÔNG BÁO TỔNG HỢP LỊCH HÔM NAY (Daily Morning Briefing)
-   * Tự động tổng hợp danh sách cuộc hẹn trong ngày theo buổi Sáng / Chiều / Tối
-   */
-  async scheduleDailyBriefing(meetings: Meeting[], _settings?: AppSettings) {
-    if (Platform.OS === 'web') return;
-
-    try {
-      await Notifications.cancelScheduledNotificationAsync(DAILY_BRIEFING_ID);
-
-      const today = new Date();
-      const todayMeetings = meetings.filter((m) =>
-        isSameDay(new Date(m.meetingTime), today)
+  /** Reconcile the OS queue from local data, including requests created by older app launches. */
+  async syncNotifications(settings: AppSettings): Promise<boolean> {
+    if (Platform.OS === 'web') return true;
+    return this.enqueue(async () => {
+      const meetings = await StorageService.getMeetings();
+      const pending = await Notifications.getAllScheduledNotificationsAsync();
+      const owned = pending.filter((request) =>
+        typeof request.content.data?.meetingId === 'string' || request.identifier === DAILY_BRIEFING_ID
       );
+      await Promise.all(owned.map((request) => Notifications.cancelScheduledNotificationAsync(request.identifier)));
 
-      const briefing = buildTodayScheduleBriefing(todayMeetings);
-
-      // Đặt lịch vào 07:00 sáng
-      const targetTime = new Date();
-      targetTime.setHours(7, 0, 0, 0);
-
-      // Nếu hiện tại đã quá 07:00 hôm nay, lên lịch cho 07:00 sáng mai
-      if (targetTime.getTime() <= Date.now()) {
-        targetTime.setDate(targetTime.getDate() + 1);
+      const permission = await Notifications.getPermissionsAsync();
+      if (!permission.granted && permission.ios?.status !== Notifications.IosAuthorizationStatus.PROVISIONAL) {
+        return false;
       }
 
+      const now = new Date();
+      // Keep the nearest requests on iOS and reserve one slot for the morning briefing.
+      const capacity = Platform.OS === 'ios' ? Math.max(0, 63 - (pending.length - owned.length)) : Infinity;
+      const plan = buildReminderPlan(meetings, settings, now.getTime()).slice(0, capacity);
+      for (const reminder of plan) {
+        const { meeting, repeatIndex } = reminder;
+        const date = new Date(meeting.meetingTime);
+        const timeStr = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+        await Notifications.scheduleNotificationAsync({
+          identifier: reminder.identifier,
+          content: {
+            title: `⏰ ${repeatIndex > 0 ? '[Nhắc lại] ' : ''}[${timeStr}] ${meeting.title}`,
+            subtitle: repeatIndex > 0 ? `Lần nhắc lại thứ ${repeatIndex}` : `Báo trước ${meeting.advanceNoticeMinutes} phút`,
+            body: `${meeting.voiceText}\nChạm để xem lịch hoặc bấm “Đã nhớ” để dừng nhắc.`,
+            categoryIdentifier: NOTIFICATION_CATEGORY_ID,
+            data: { meetingId: meeting.id },
+            sound: true,
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: reminder.date,
+            ...(Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : {}),
+          },
+        });
+      }
+
+      const targetTime = new Date(now);
+      targetTime.setHours(7, 0, 0, 0);
+      if (targetTime.getTime() <= now.getTime()) targetTime.setDate(targetTime.getDate() + 1);
+      const targetMeetings = meetings.filter((meeting) => isSameDay(new Date(meeting.meetingTime), targetTime));
+      const briefing = buildTodayScheduleBriefing(targetMeetings, targetTime);
       await Notifications.scheduleNotificationAsync({
         identifier: DAILY_BRIEFING_ID,
         content: {
@@ -307,29 +199,28 @@ class AlarmManagerService {
           data: { type: 'DAILY_BRIEFING' },
           sound: true,
         },
-        trigger: (Platform.OS === 'android'
-          ? { date: targetTime, channelId: NOTIFICATION_CHANNEL_ID }
-          : targetTime) as any,
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: targetTime,
+          ...(Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : {}),
+        },
       });
-    } catch (e) {
-      console.warn('scheduleDailyBriefing error:', e);
-    }
+      return true;
+    }).catch((error) => {
+      console.warn('Could not schedule reminders:', error);
+      return false;
+    });
   }
 
-  /**
-   * Gửi ngay lập tức THÔNG BÁO TỔNG HỢP LỊCH HÔM NAY ra màn hình để người dùng kiểm tra ngay
-   */
   async sendInstantDailyBriefingNotification(meetings: Meeting[]) {
-    if (Platform.OS === 'web') return;
-
+    if (Platform.OS === 'web') return false;
+    const now = new Date();
+    const briefing = buildTodayScheduleBriefing(
+      meetings.filter((meeting) => isSameDay(new Date(meeting.meetingTime), now)), now
+    );
     try {
-      const today = new Date();
-      const todayMeetings = meetings.filter((m) =>
-        isSameDay(new Date(m.meetingTime), today)
-      );
-
-      const briefing = buildTodayScheduleBriefing(todayMeetings);
-
+      const permission = await Notifications.getPermissionsAsync();
+      if (!permission.granted && permission.ios?.status !== Notifications.IosAuthorizationStatus.PROVISIONAL) return false;
       await Notifications.scheduleNotificationAsync({
         content: {
           title: briefing.title,
@@ -338,125 +229,86 @@ class AlarmManagerService {
           data: { type: 'DAILY_BRIEFING' },
           sound: true,
         },
-        trigger: (Platform.OS === 'android'
-          ? { channelId: NOTIFICATION_CHANNEL_ID }
-          : null) as any,
+        trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
       });
-    } catch (e) {
-      console.warn('sendInstantDailyBriefingNotification error:', e);
+      return true;
+    } catch (error) {
+      console.warn('Could not send test notification:', error);
+      return false;
     }
   }
 
-  /**
-   * Hủy các thông báo nền của cuộc họp khi người dùng bấm "Đã nhớ" hoặc xóa lịch
-   */
-  async cancelBackgroundNotifications(meetingId: string) {
-    const ids = this.scheduledNotificationIds.get(meetingId);
-    if (ids && ids.length > 0) {
-      for (const id of ids) {
-        try {
-          await Notifications.cancelScheduledNotificationAsync(id);
-        } catch (e) {
-          // ignore
-        }
-      }
-      this.scheduledNotificationIds.delete(meetingId);
-    }
+  private async removeMeetingNotifications(meetingId: string) {
+    if (Platform.OS === 'web') return;
+    const pending = await Notifications.getAllScheduledNotificationsAsync();
+    await Promise.all(pending
+      .filter((request) => request.content.data?.meetingId === meetingId)
+      .map((request) => Notifications.cancelScheduledNotificationAsync(request.identifier)));
+    const presented = await Notifications.getPresentedNotificationsAsync();
+    await Promise.all(presented
+      .filter((notification) => notification.request.content.data?.meetingId === meetingId)
+      .map((notification) => Notifications.dismissNotificationAsync(notification.request.identifier)));
   }
 
-  /**
-   * Kích hoạt chuông báo thức toàn màn hình và đọc to giọng nói khi app đang mở
-   */
   async triggerAlarm(meeting: Meeting, settings: AppSettings) {
-    // 1. Đọc giọng nói tiếng Việt
-    SpeechService.speakVoiceReminder(meeting.voiceText, {
-      pitch: settings.speechPitch,
-      rate: settings.speechRate,
-    });
-
-    // 2. Rung haptics
-    if (settings.hapticEnabled) {
-      SpeechService.triggerAlarmHaptics();
-    }
-
-    // 3. Kích hoạt overlay giao diện
-    if (this.onAlarmTriggerCallback) {
-      this.onAlarmTriggerCallback(meeting);
-    }
-
-    // 4. Cập nhật trạng thái
-    const updatedMeeting: Meeting = {
-      ...meeting,
-      status: 'REMINDING',
-      nagCount: (meeting.nagCount || 0) + 1,
-    };
-    await StorageService.updateMeeting(updatedMeeting);
-
-    // 5. Quản lý timer lặp trong RAM
-    this.scheduleNextNagInMemory(updatedMeeting, settings);
+    if (AppState.currentState !== 'active') return;
+    const current = (await StorageService.getMeetings()).find((item) => item.id === meeting.id);
+    if (!current || current.status === 'ACKNOWLEDGED') return;
+    await SpeechService.speakVoiceReminder(current.voiceText, { pitch: settings.speechPitch, rate: settings.speechRate });
+    if (settings.hapticEnabled) await SpeechService.triggerAlarmHaptics();
+    this.callbacks?.onAlarm(current);
+    const updated: Meeting = { ...current, status: 'REMINDING', nagCount: current.nagCount + 1 };
+    await StorageService.updateMeeting(updated);
+    this.scheduleNextNagInMemory(updated, settings);
   }
 
   private scheduleNextNagInMemory(meeting: Meeting, settings: AppSettings) {
-    if (this.activeReminders.has(meeting.id)) {
-      clearTimeout(this.activeReminders.get(meeting.id)!);
-      this.activeReminders.delete(meeting.id);
-    }
-
-    const meetingStart = new Date(meeting.meetingTime).getTime();
-    const intervalMs = (meeting.repeatIntervalMinutes || settings.defaultRepeatIntervalMinutes || 5) * 60 * 1000;
-    const nextNagTime = Date.now() + intervalMs;
-
-    if (settings.stopOnMeetingStart && nextNagTime >= meetingStart) {
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      const allMeetings = await StorageService.getMeetings();
-      const current = allMeetings.find(m => m.id === meeting.id);
-      if (current && current.status === 'REMINDING') {
-        this.triggerAlarm(current, settings);
-      }
-    }, intervalMs);
-
-    this.activeReminders.set(meeting.id, timer);
+    const timer = this.activeReminders.get(meeting.id);
+    if (timer) clearTimeout(timer);
+    this.activeReminders.delete(meeting.id);
+    const nextTime = Date.now() + Math.max(1, meeting.repeatIntervalMinutes || settings.defaultRepeatIntervalMinutes || 5) * 60_000;
+    if (settings.stopOnMeetingStart && nextTime >= new Date(meeting.meetingTime).getTime()) return;
+    if (settings.nagMaxCount > 0 && meeting.nagCount >= settings.nagMaxCount) return;
+    this.activeReminders.set(meeting.id, setTimeout(() => {
+      void this.triggerAlarm(meeting, settings).catch((error) => console.warn('Voice reminder failed:', error));
+    }, nextTime - Date.now()));
   }
 
-  /**
-   * DỪNG BÁO THỨC NGAY LẬP TỨC: Tắt giọng đọc, tắt rung, hủy tất cả thông báo nền
-   */
-  async acknowledgeAndDismiss(meetingId: string): Promise<Meeting | null> {
-    await SpeechService.stop();
-    await SpeechService.triggerSuccessHaptics();
-
-    // Hủy timer trong RAM
-    if (this.activeReminders.has(meetingId)) {
-      clearTimeout(this.activeReminders.get(meetingId)!);
-      this.activeReminders.delete(meetingId);
+  resumeForegroundReminders(meetings: Meeting[], settings: AppSettings) {
+    for (const meeting of meetings) {
+      if (meeting.status === 'REMINDING') this.scheduleNextNagInMemory(meeting, settings);
     }
+  }
 
-    // HỦY TOÀN BỘ CÁC THÔNG BÁO NỀN TIẾP THEO
-    await this.cancelBackgroundNotifications(meetingId);
+  pauseForegroundReminders() {
+    for (const timer of this.activeReminders.values()) clearTimeout(timer);
+    this.activeReminders.clear();
+    void SpeechService.stop();
+  }
 
-    const all = await StorageService.getMeetings();
-    const meeting = all.find(m => m.id === meetingId);
-    if (!meeting) return null;
-
-    const updated: Meeting = {
-      ...meeting,
-      status: 'ACKNOWLEDGED',
-      acknowledgedAt: new Date().toISOString(),
-    };
-    await StorageService.updateMeeting(updated);
-
+  async acknowledgeAndDismiss(meetingId: string): Promise<Meeting | null> {
+    const timer = this.activeReminders.get(meetingId);
+    if (timer) clearTimeout(timer);
+    this.activeReminders.delete(meetingId);
+    await SpeechService.stop();
+    const meeting = (await StorageService.getMeetings()).find((item) => item.id === meetingId);
+    let updated: Meeting | null = null;
+    if (meeting) {
+      updated = { ...meeting, status: 'ACKNOWLEDGED', acknowledgedAt: new Date().toISOString() };
+      await StorageService.updateMeeting(updated);
+      this.callbacks?.onAcknowledged(updated);
+    }
+    await this.enqueue(() => this.removeMeetingNotifications(meetingId));
+    const settings = await StorageService.getSettings();
+    await this.syncNotifications(settings);
     return updated;
   }
 
   async cancelAlarm(meetingId: string) {
-    if (this.activeReminders.has(meetingId)) {
-      clearTimeout(this.activeReminders.get(meetingId)!);
-      this.activeReminders.delete(meetingId);
-    }
-    await this.cancelBackgroundNotifications(meetingId);
+    const timer = this.activeReminders.get(meetingId);
+    if (timer) clearTimeout(timer);
+    this.activeReminders.delete(meetingId);
+    await this.enqueue(() => this.removeMeetingNotifications(meetingId));
   }
 }
 

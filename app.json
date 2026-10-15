@@ -10,17 +10,14 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.company.ceovoicecalendar",
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "Ứng dụng cần quyền nhận diện giọng nói để ghi lại lịch họp của lãnh đạo.",
-        "NSMicrophoneUsageDescription": "Ứng dụng cần quyền micro để ghi lại lệnh đặt lịch bằng lời nói.",
-        "UIBackgroundModes": [
-          "audio"
-        ]
+        "NSSpeechRecognitionUsageDescription": "Chuyển lời nói thành văn bản để tạo lịch hẹn. Dịch vụ nhận diện của Apple có thể xử lý âm thanh qua mạng.",
+        "NSMicrophoneUsageDescription": "Dùng micro khi bạn bấm ghi âm để nhập lịch hẹn bằng giọng nói. Bạn cũng có thể nhập bằng bàn phím."
       }
     },
     "android": {
       "package": "com.company.ceovoicecalendar",
       "adaptiveIcon": {
-        "backgroundColor": "#0A192F",
+          "backgroundColor": "#0A2540",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -40,7 +37,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/notification-icon.png",
           "color": "#6366F1"
         }
       ],

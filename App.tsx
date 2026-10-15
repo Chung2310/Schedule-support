@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   StatusBar,
   Platform,
+  AppState,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -53,42 +55,72 @@ export default function App() {
     const loadedMeetings = await StorageService.getMeetings();
     setMeetings(loadedMeetings);
 
-    // Lên lịch thông báo nền cho các cuộc hẹn sắp tới
-    for (const m of loadedMeetings) {
-      if (m.status === 'UPCOMING') {
-        await AlarmManager.scheduleBackgroundAlarms(m, loadedSettings, loadedMeetings);
-      }
-    }
-
-    // Lên lịch thông báo tổng hợp lịch hôm nay
-    await AlarmManager.scheduleDailyBriefing(loadedMeetings, loadedSettings);
+    await AlarmManager.syncNotifications(loadedSettings);
+    AlarmManager.resumeForegroundReminders(loadedMeetings, loadedSettings);
   }, []);
 
   useEffect(() => {
-    loadData();
-
-    // Khởi tạo AlarmManager với callback khi có chuông reo
-    AlarmManager.init((meeting) => {
-      setActiveAlarmMeeting(meeting);
+    let disposed = false;
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        await AlarmManager.init({
+          onAlarm: setActiveAlarmMeeting,
+          onAcknowledged: (meeting) => {
+            setMeetings((previous) => previous.map((item) => item.id === meeting.id ? meeting : item));
+            setActiveAlarmMeeting((previous) => previous?.id === meeting.id ? null : previous);
+          },
+          onNotificationOpen: (meeting) => {
+            setSelectedDate(new Date(meeting.meetingTime));
+            setViewMode('DAY');
+          },
+        });
+        if (!disposed) await loadData();
+      } finally {
+        refreshing = false;
+      }
+    };
+    const refreshSafely = () => {
+      void refresh().catch((error) => console.warn('Could not refresh local calendar:', error));
+    };
+    refreshSafely();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshSafely();
+      else AlarmManager.pauseForegroundReminders();
     });
+    return () => {
+      disposed = true;
+      subscription.remove();
+      AlarmManager.pauseForegroundReminders();
+    };
   }, [loadData]);
 
   // Bộ đếm thời gian kiểm tra nhắc lịch theo chu kỳ
   useEffect(() => {
+    let checking = false;
     const interval = setInterval(async () => {
-      const now = Date.now();
-      const currentMeetings = await StorageService.getMeetings();
-
-      for (const m of currentMeetings) {
-        if (m.status === 'UPCOMING') {
-          const firstReminder = new Date(m.firstReminderTime).getTime();
-          if (now >= firstReminder) {
-            await AlarmManager.triggerAlarm(m, settings);
-            const refreshed = await StorageService.getMeetings();
-            setMeetings(refreshed);
-            break;
+      if (checking || AppState.currentState !== 'active') return;
+      checking = true;
+      try {
+        const now = Date.now();
+        const currentMeetings = await StorageService.getMeetings();
+        for (const m of currentMeetings) {
+          if (m.status === 'UPCOMING') {
+            if (settings.stopOnMeetingStart && new Date(m.meetingTime).getTime() <= now) continue;
+            const firstReminder = new Date(m.firstReminderTime).getTime();
+            if (now >= firstReminder) {
+              await AlarmManager.triggerAlarm(m, settings);
+              setMeetings(await StorageService.getMeetings());
+              break;
+            }
           }
         }
+      } catch (error) {
+        console.warn('Could not check reminders:', error);
+      } finally {
+        checking = false;
       }
     }, 3000);
 
@@ -115,8 +147,6 @@ export default function App() {
     repeatIntervalMinutes: number;
     voiceText: string;
   }) => {
-    setIsVoiceModalOpen(false);
-
     const firstReminder = AlarmManager.calculateFirstReminder(
       data.meetingTime,
       data.advanceNoticeMinutes
@@ -135,7 +165,14 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    const updated = await StorageService.addMeeting(newMeeting);
+    let updated: Meeting[];
+    try {
+      updated = await StorageService.addMeeting(newMeeting);
+    } catch {
+      Alert.alert('Chưa lưu được lịch', 'Không thể ghi dữ liệu trên thiết bị. Bạn hãy kiểm tra dung lượng trống và thử lại.');
+      return;
+    }
+    setIsVoiceModalOpen(false);
     setMeetings(updated);
 
     // Chuyển ngày được chọn sang ngày của cuộc hẹn vừa thêm & chuyển sang xem chi tiết ngày đó
@@ -143,19 +180,23 @@ export default function App() {
     setViewMode('DAY');
 
     // Kích hoạt thông báo nền hệ điều hành
-    await AlarmManager.scheduleBackgroundAlarms(newMeeting, settings, updated);
-    await AlarmManager.scheduleDailyBriefing(updated, settings);
+    const notificationsScheduled = await AlarmManager.syncNotifications(settings);
+    if (!notificationsScheduled && Platform.OS !== 'web') {
+      Alert.alert('Đã lưu lịch hẹn', 'Chưa thể bật thông báo nhắc lịch. Hãy kiểm tra quyền thông báo của ứng dụng trong Cài đặt thiết bị.');
+    }
   };
 
   // Tắt báo thức (Đã nhớ)
   const handleDismissAlarm = async () => {
     if (!activeAlarmMeeting) return;
     const meetingId = activeAlarmMeeting.id;
-    setActiveAlarmMeeting(null);
-
-    await AlarmManager.acknowledgeAndDismiss(meetingId);
-    const refreshed = await StorageService.getMeetings();
-    setMeetings(refreshed);
+    try {
+      await AlarmManager.acknowledgeAndDismiss(meetingId);
+      setActiveAlarmMeeting(null);
+      setMeetings(await StorageService.getMeetings());
+    } catch {
+      Alert.alert('Chưa hoàn tất xác nhận', 'Không thể cập nhật lịch hoặc hủy thông báo. Bạn hãy thử lại.');
+    }
   };
 
   // Thử chuông ngay
@@ -167,17 +208,31 @@ export default function App() {
 
   // Xóa cuộc họp
   const handleDeleteMeeting = async (id: string) => {
-    await AlarmManager.cancelAlarm(id);
-    const updated = await StorageService.deleteMeeting(id);
+    let updated: Meeting[];
+    try {
+      updated = await StorageService.deleteMeeting(id);
+    } catch {
+      Alert.alert('Chưa xóa được lịch', 'Không thể cập nhật dữ liệu trên thiết bị. Bạn hãy thử lại.');
+      return;
+    }
     setMeetings(updated);
-    await AlarmManager.scheduleDailyBriefing(updated, settings);
+    await AlarmManager.cancelAlarm(id).catch((error) => console.warn('Could not cancel meeting notifications:', error));
+    await AlarmManager.syncNotifications(settings);
   };
 
   // Lưu cài đặt
   const handleSaveSettings = async (newSettings: AppSettings) => {
+    try {
+      await StorageService.saveSettings(newSettings);
+    } catch {
+      Alert.alert('Chưa lưu được cài đặt', 'Không thể ghi dữ liệu trên thiết bị. Bạn hãy thử lại.');
+      return;
+    }
     setIsSettingsModalOpen(false);
     setSettings(newSettings);
-    await StorageService.saveSettings(newSettings);
+    await AlarmManager.syncNotifications(newSettings);
+    AlarmManager.pauseForegroundReminders();
+    AlarmManager.resumeForegroundReminders(await StorageService.getMeetings(), newSettings);
   };
 
   // Danh sách cuộc họp của ngày đang được chọn
@@ -283,17 +338,17 @@ export default function App() {
       />
 
       {/* Modal thu âm & xác nhận thông minh 1 BƯỚC DUY NHẤT */}
-      <VoiceInputModal
+      {isVoiceModalOpen ? <VoiceInputModal
         visible={isVoiceModalOpen}
         initialText={initialVoiceText}
         selectedDate={selectedDate}
         settings={settings}
         onClose={() => setIsVoiceModalOpen(false)}
         onSaveMeeting={handleSaveVoiceMeeting}
-      />
+      /> : null}
 
       {/* Modal cài đặt */}
-      <SettingsModal
+      {isSettingsModalOpen ? <SettingsModal
         visible={isSettingsModalOpen}
         settings={settings}
         onClose={() => setIsSettingsModalOpen(false)}
@@ -301,7 +356,7 @@ export default function App() {
         onTestNotification={() =>
           AlarmManager.sendInstantDailyBriefingNotification(meetings)
         }
-      />
+      /> : null}
     </SafeAreaView>
   );
 }

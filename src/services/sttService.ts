@@ -11,14 +11,18 @@ export interface STTCallbacks {
 let NativeSpeechRecognition: any = null;
 
 try {
+  // Optional native module: Expo Go must still allow keyboard input when it is absent.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const module = require('expo-speech-recognition');
   NativeSpeechRecognition = module.ExpoSpeechRecognitionModule;
-} catch (e) {
+} catch {
   NativeSpeechRecognition = null;
 }
 
 let subscriptions: { remove: () => void }[] = [];
 let webRecognitionInstance: any = null;
+let recognitionSession = 0;
+let activeNativeSession: number | null = null;
 
 export const STTService = {
   isNativeAvailable(): boolean {
@@ -43,11 +47,14 @@ export const STTService = {
 
   async startListening(callbacks: STTCallbacks): Promise<boolean> {
     this.stopListening();
+    const session = recognitionSession;
+    const isCurrent = () => recognitionSession === session;
 
     // 1. Nhận diện giọng nói Native (iOS SFSpeechRecognizer & Android SpeechRecognizer)
     if (NativeSpeechRecognition && NativeSpeechRecognition.start) {
       try {
         const hasPerm = await this.requestPermissions();
+        if (!isCurrent()) return false;
         if (!hasPerm) {
           if (callbacks.onError) callbacks.onError('PERMISSION_DENIED');
           return false;
@@ -55,6 +62,7 @@ export const STTService = {
 
         // Đăng ký nhận sự kiện kết quả nhận dạng theo thời gian thực từ Native
         const subResult = NativeSpeechRecognition.addListener('result', (event: any) => {
+          if (!isCurrent()) return;
           if (event && event.results && event.results.length > 0) {
             const transcript = event.results[0].transcript || '';
             if (callbacks.onResult && transcript.trim()) {
@@ -64,19 +72,24 @@ export const STTService = {
         });
 
         const subStart = NativeSpeechRecognition.addListener('start', () => {
+          if (!isCurrent()) return;
           if (callbacks.onStart) callbacks.onStart();
         });
 
         const subEnd = NativeSpeechRecognition.addListener('end', () => {
+          if (!isCurrent()) return;
+          activeNativeSession = null;
           if (callbacks.onEnd) callbacks.onEnd();
         });
 
         const subError = NativeSpeechRecognition.addListener('error', (err: any) => {
+          if (!isCurrent()) return;
           console.warn('[STT] Speech recognition error event:', err);
           if (callbacks.onError) callbacks.onError(err);
         });
 
         const subVolume = NativeSpeechRecognition.addListener('volumechange', (evt: any) => {
+          if (!isCurrent()) return;
           if (callbacks.onVolumeChange && typeof evt?.value === 'number') {
             callbacks.onVolumeChange(evt.value);
           }
@@ -84,17 +97,25 @@ export const STTService = {
 
         subscriptions = [subResult, subStart, subEnd, subError, subVolume];
 
-        NativeSpeechRecognition.start({
+        activeNativeSession = session;
+        await NativeSpeechRecognition.start({
           lang: 'vi-VN', // Tiếng Việt
           interimResults: true,
           maxAlternatives: 1,
           continuous: false,
         });
-
-        if (callbacks.onStart) callbacks.onStart();
+        if (!isCurrent()) {
+          if (activeNativeSession === null) await NativeSpeechRecognition.stop();
+          return false;
+        }
         return true;
       } catch (e) {
-        console.warn('[STT] Native speech recognition start failed:', e);
+        if (isCurrent()) {
+          this.stopListening();
+          console.warn('[STT] Native speech recognition start failed:', e);
+          callbacks.onError?.(e);
+        }
+        return false;
       }
     }
 
@@ -112,9 +133,11 @@ export const STTService = {
           recognition.interimResults = true;
 
           recognition.onstart = () => {
+            if (!isCurrent()) return;
             if (callbacks.onStart) callbacks.onStart();
           };
           recognition.onresult = (event: any) => {
+            if (!isCurrent()) return;
             let text = '';
             for (let i = 0; i < event.results.length; i++) {
               text += event.results[i][0].transcript;
@@ -124,9 +147,11 @@ export const STTService = {
             }
           };
           recognition.onerror = (err: any) => {
+            if (!isCurrent()) return;
             if (callbacks.onError) callbacks.onError(err);
           };
           recognition.onend = () => {
+            if (!isCurrent()) return;
             if (callbacks.onEnd) callbacks.onEnd();
           };
 
@@ -143,21 +168,23 @@ export const STTService = {
   },
 
   stopListening(): void {
+    recognitionSession += 1;
+    activeNativeSession = null;
     if (NativeSpeechRecognition && NativeSpeechRecognition.stop) {
       try {
         NativeSpeechRecognition.stop();
-      } catch (e) {}
+      } catch {}
     }
     if (webRecognitionInstance) {
       try {
         webRecognitionInstance.stop();
-      } catch (e) {}
+      } catch {}
       webRecognitionInstance = null;
     }
     subscriptions.forEach((sub) => {
       try {
         sub.remove();
-      } catch (e) {}
+      } catch {}
     });
     subscriptions = [];
   },

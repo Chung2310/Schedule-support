@@ -7,7 +7,6 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { Meeting } from '../types/meeting';
 import { formatDateKey, isSameDay, getDaysInMonth } from '../utils/dateUtils';
 
@@ -49,13 +48,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     const y = selectedDate.getFullYear();
     const m = selectedDate.getMonth();
     const count = getDaysInMonth(y, m);
-    const list: Array<{
+    const list: {
       date: Date;
       dateKey: string;
       dayOfWeekName: string;
       dayNumber: number;
       isWeekend: boolean;
-    }> = [];
+    }[] = [];
 
     for (let day = 1; day <= count; day++) {
       const d = new Date(y, m, day);
@@ -71,7 +70,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       });
     }
     return list;
-  }, [selectedDate.getFullYear(), selectedDate.getMonth()]);
+  }, [selectedDate]);
 
   // Tự động cuộn đến ngày đang chọn trong tháng
   useEffect(() => {

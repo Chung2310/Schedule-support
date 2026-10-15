@@ -9,11 +9,17 @@ class DatabaseServiceImpl {
 
   private async getDB(): Promise<SQLite.SQLiteDatabase> {
     if (!this.dbPromise) {
-      this.dbPromise = SQLite.openDatabaseAsync(DB_NAME);
+      this.dbPromise = SQLite.openDatabaseAsync(DB_NAME)
+        .then(async (db) => {
+          await this.initTables(db);
+          return db;
+        })
+        .catch((error) => {
+          this.dbPromise = null;
+          throw error;
+        });
     }
-    const db = await this.dbPromise;
-    await this.initTables(db);
-    return db;
+    return this.dbPromise;
   }
 
   private async initTables(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -39,48 +45,6 @@ class DatabaseServiceImpl {
       );
     `);
 
-    // Khởi tạo 2 cuộc hẹn mẫu ban đầu cho CEO nếu database mới hoàn toàn
-    const countRow = await db.getFirstAsync<{ count: number }>(
-      'SELECT COUNT(*) as count FROM meetings;'
-    );
-
-    if (countRow && countRow.count === 0) {
-      const today = new Date();
-      const morningTime = new Date(today);
-      morningTime.setHours(9, 30, 0, 0);
-
-      const afternoonTime = new Date(today);
-      afternoonTime.setHours(14, 30, 0, 0);
-
-      const seed1: Meeting = {
-        id: 'seed-morning-1',
-        title: 'Họp giao ban ban giám đốc',
-        meetingTime: morningTime.toISOString(),
-        advanceNoticeMinutes: 15,
-        repeatIntervalMinutes: 5,
-        firstReminderTime: new Date(morningTime.getTime() - 15 * 60000).toISOString(),
-        status: 'UPCOMING',
-        nagCount: 0,
-        voiceText: '9 giờ 30 phút, họp giao ban ban giám đốc',
-        createdAt: new Date().toISOString(),
-      };
-
-      const seed2: Meeting = {
-        id: 'seed-afternoon-1',
-        title: 'Gặp đối tác ký kết hợp đồng',
-        meetingTime: afternoonTime.toISOString(),
-        advanceNoticeMinutes: 15,
-        repeatIntervalMinutes: 5,
-        firstReminderTime: new Date(afternoonTime.getTime() - 15 * 60000).toISOString(),
-        status: 'UPCOMING',
-        nagCount: 0,
-        voiceText: '14 giờ 30 phút, gặp đối tác ký kết hợp đồng',
-        createdAt: new Date().toISOString(),
-      };
-
-      await this.insertMeetingInternal(db, seed1);
-      await this.insertMeetingInternal(db, seed2);
-    }
   }
 
   private async insertMeetingInternal(db: SQLite.SQLiteDatabase, m: Meeting): Promise<void> {
@@ -126,7 +90,7 @@ class DatabaseServiceImpl {
       }));
     } catch (e) {
       console.warn('SQLite getMeetings error:', e);
-      return [];
+      throw e;
     }
   }
 
@@ -136,6 +100,7 @@ class DatabaseServiceImpl {
       await this.insertMeetingInternal(db, meeting);
     } catch (e) {
       console.error('SQLite addMeeting error:', e);
+      throw e;
     }
     return this.getMeetings();
   }
@@ -146,6 +111,7 @@ class DatabaseServiceImpl {
       await this.insertMeetingInternal(db, meeting);
     } catch (e) {
       console.error('SQLite updateMeeting error:', e);
+      throw e;
     }
     return this.getMeetings();
   }
@@ -156,6 +122,7 @@ class DatabaseServiceImpl {
       await db.runAsync('DELETE FROM meetings WHERE id = ?;', [id]);
     } catch (e) {
       console.error('SQLite deleteMeeting error:', e);
+      throw e;
     }
     return this.getMeetings();
   }
@@ -185,6 +152,7 @@ class DatabaseServiceImpl {
       );
     } catch (e) {
       console.error('SQLite saveSettings error:', e);
+      throw e;
     }
   }
 }

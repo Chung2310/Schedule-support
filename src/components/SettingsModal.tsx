@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,12 @@ import {
   Modal,
   Switch,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppSettings, DEFAULT_SETTINGS } from '../types/settings';
 import { SpeechService } from '../services/speechService';
+import { PrivacyPolicyContent } from './PrivacyPolicyContent';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -29,23 +31,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const [leadTime, setLeadTime] = useState(15);
-  const [repeatInterval, setRepeatInterval] = useState(5);
-  const [stopOnMeetingStart, setStopOnMeetingStart] = useState(true);
-  const [hapticEnabled, setHapticEnabled] = useState(true);
+  const [leadTime, setLeadTime] = useState(settings.defaultAdvanceNoticeMinutes ?? 15);
+  const [repeatInterval, setRepeatInterval] = useState(settings.defaultRepeatIntervalMinutes ?? 5);
+  const [stopOnMeetingStart, setStopOnMeetingStart] = useState(settings.stopOnMeetingStart ?? true);
+  const [hapticEnabled, setHapticEnabled] = useState(settings.hapticEnabled ?? true);
   const [isPlayingTest, setIsPlayingTest] = useState(false);
-
-  useEffect(() => {
-    if (visible) {
-      setLeadTime(settings.defaultAdvanceNoticeMinutes ?? 15);
-      setRepeatInterval(settings.defaultRepeatIntervalMinutes ?? 5);
-      setStopOnMeetingStart(settings.stopOnMeetingStart ?? true);
-      setHapticEnabled(settings.hapticEnabled ?? true);
-      setIsPlayingTest(false);
-    }
-  }, [visible, settings]);
+  const [showPrivacy, setShowPrivacy] = useState(false);
 
   const handleTestTTS = async () => {
+    if (isPlayingTest) {
+      await SpeechService.stop();
+      setIsPlayingTest(false);
+      return;
+    }
     setIsPlayingTest(true);
     await SpeechService.speakVoiceReminder('14 giờ, họp giao ban ban giám đốc', {
       rate: settings.speechRate || 0.95,
@@ -72,9 +70,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={showPrivacy ? () => setShowPrivacy(false) : onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
+          {showPrivacy ? <PrivacyPolicyContent onBack={() => setShowPrivacy(false)} /> : <>
           {/* Header tối giản kiểu iOS */}
           <View style={styles.header}>
             <Text style={styles.title}>Cài Đặt</Text>
@@ -88,6 +87,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </TouchableOpacity>
           </View>
 
+          <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent}>
           {/* Group 1: Nhắc lịch & Báo thức */}
           <View style={styles.groupCard}>
             {/* Hàng 1: Báo trước */}
@@ -217,6 +217,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </View>
           </View>
 
+          <Text style={styles.note}>Giọng đọc hoạt động khi ứng dụng đang mở. Khi đóng ứng dụng hoặc khóa máy, bạn nhận nhắc lịch bằng thông báo của thiết bị.</Text>
+          <TouchableOpacity accessibilityRole="button" onPress={() => setShowPrivacy(true)} style={styles.privacyButton}>
+            <Ionicons name="shield-checkmark-outline" size={18} color="#0A2540" />
+            <Text style={styles.privacyText}>Chính sách quyền riêng tư</Text>
+            <Ionicons name="chevron-forward" size={18} color="#64748B" />
+          </TouchableOpacity>
+
           {/* Text link: Đặt lại mặc định */}
           <TouchableOpacity
             style={styles.resetLinkBox}
@@ -225,6 +232,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <Text style={styles.resetLinkText}>Đặt lại mặc định</Text>
           </TouchableOpacity>
+          </ScrollView>
+          </>}
         </View>
       </View>
     </Modal>
@@ -238,6 +247,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
+    maxHeight: '90%',
     backgroundColor: '#F8FAFC',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -369,4 +379,9 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '600',
   },
+  settingsScroll: { flexShrink: 1 },
+  settingsContent: { paddingBottom: 8 },
+  note: { fontSize: 13, lineHeight: 20, color: '#64748B', marginBottom: 12 },
+  privacyButton: { flexDirection: 'row', alignItems: 'center', minHeight: 48, gap: 10, paddingVertical: 12 },
+  privacyText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#0A2540' },
 });

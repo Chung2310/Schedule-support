@@ -6,53 +6,16 @@ const WEB_MEETINGS_KEY = 'ceo_calendar_meetings';
 const WEB_SETTINGS_KEY = 'ceo_calendar_settings';
 
 class DatabaseServiceWeb {
-  private getWebSeedMeetings(): Meeting[] {
-    const today = new Date();
-    const morningTime = new Date(today);
-    morningTime.setHours(9, 30, 0, 0);
-
-    const afternoonTime = new Date(today);
-    afternoonTime.setHours(14, 30, 0, 0);
-
-    return [
-      {
-        id: 'seed-morning-1',
-        title: 'Họp giao ban ban giám đốc',
-        meetingTime: morningTime.toISOString(),
-        advanceNoticeMinutes: 15,
-        repeatIntervalMinutes: 5,
-        firstReminderTime: new Date(morningTime.getTime() - 15 * 60000).toISOString(),
-        status: 'UPCOMING',
-        nagCount: 0,
-        voiceText: '9 giờ 30 phút, họp giao ban ban giám đốc',
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'seed-afternoon-1',
-        title: 'Gặp đối tác ký kết hợp đồng',
-        meetingTime: afternoonTime.toISOString(),
-        advanceNoticeMinutes: 15,
-        repeatIntervalMinutes: 5,
-        firstReminderTime: new Date(afternoonTime.getTime() - 15 * 60000).toISOString(),
-        status: 'UPCOMING',
-        nagCount: 0,
-        voiceText: '14 giờ 30 phút, gặp đối tác ký kết hợp đồng',
-        createdAt: new Date().toISOString(),
-      },
-    ];
-  }
-
   async getMeetings(): Promise<Meeting[]> {
     try {
       const raw = await AsyncStorage.getItem(WEB_MEETINGS_KEY);
       if (raw) {
         return JSON.parse(raw);
       }
-      const seeds = this.getWebSeedMeetings();
-      await AsyncStorage.setItem(WEB_MEETINGS_KEY, JSON.stringify(seeds));
-      return seeds;
+      return [];
     } catch (e) {
-      return this.getWebSeedMeetings();
+      console.warn('Local meeting storage could not be read:', e);
+      throw e;
     }
   }
 
@@ -83,7 +46,7 @@ class DatabaseServiceWeb {
     try {
       const raw = await AsyncStorage.getItem(WEB_SETTINGS_KEY);
       if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-    } catch (e) {
+    } catch {
       // fallback
     }
     return DEFAULT_SETTINGS;
@@ -94,6 +57,7 @@ class DatabaseServiceWeb {
       await AsyncStorage.setItem(WEB_SETTINGS_KEY, JSON.stringify(settings));
     } catch (e) {
       console.error('AsyncStorage saveSettings error:', e);
+      throw e;
     }
   }
 }

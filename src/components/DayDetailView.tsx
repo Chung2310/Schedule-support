@@ -28,13 +28,6 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
   onSimulateAlarm,
   onDeleteMeeting,
 }) => {
-  const dateTitle = date.toLocaleDateString('vi-VN', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-
   const dayOfWeek = date.toLocaleDateString('vi-VN', { weekday: 'long' });
   const dayNumber = date.getDate();
   const monthName = date.toLocaleDateString('vi-VN', { month: 'long' });
