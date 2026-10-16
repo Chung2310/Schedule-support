@@ -108,6 +108,13 @@ jobs:
           EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
           EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
 
+      - name: Verify Expo organization
+        run: |
+          node -e "const { expo } = require('./app.json'); if (expo.owner !== 'igen-technology') throw new Error('expo.owner must be igen-technology for production releases.');"
+          npx eas-cli@latest project:info
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
       - name: Build and submit with EAS
         run: npx eas-cli@latest build --platform ios --profile production --non-interactive --wait --auto-submit
         env:

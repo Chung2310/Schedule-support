@@ -2,6 +2,7 @@
   "expo": {
     "name": "Schedule Support",
     "slug": "nhac-lich-giong-noi",
+    "owner": "igen-technology",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -11,7 +12,8 @@
       "bundleIdentifier": "com.igen.schedule",
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Chuyển lời nói thành văn bản để tạo lịch hẹn. Dịch vụ nhận diện của Apple có thể xử lý âm thanh qua mạng.",
-        "NSMicrophoneUsageDescription": "Dùng micro khi bạn bấm ghi âm để nhập lịch hẹn bằng giọng nói. Bạn cũng có thể nhập bằng bàn phím."
+        "NSMicrophoneUsageDescription": "Dùng micro khi bạn bấm ghi âm để nhập lịch hẹn bằng giọng nói. Bạn cũng có thể nhập bằng bàn phím.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
