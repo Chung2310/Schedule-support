@@ -1,8 +1,13 @@
-name: iOS Production
+name: App CI and iOS Release
 
 on:
   push:
     branches:
+      - develop
+      - production
+  pull_request:
+    branches:
+      - develop
       - production
   workflow_dispatch:
 
@@ -10,8 +15,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-production-release
-  cancel-in-progress: false
+  group: app-ci-ios-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/production' }}
 
 jobs:
   validate:
@@ -49,6 +54,7 @@ jobs:
 
   build-and-submit:
     name: Build signed iOS app and upload to App Store Connect
+    if: ${{ github.ref == 'refs/heads/production' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     needs: validate
     runs-on: ubuntu-latest
     steps:
