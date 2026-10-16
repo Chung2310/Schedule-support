@@ -10,6 +10,8 @@ private struct VoiceNotification: Record {
   @Field var body: String = ""
   @Field var sound: String = ""
   @Field var meetingId: String = ""
+  @Field var type: String = ""
+  @Field var categoryIdentifier: String = ""
   @Field var fireAt: Double = 0
 }
 
@@ -37,8 +39,11 @@ public final class MeetingVoiceModule: Module {
       content.title = input.title
       content.subtitle = input.subtitle
       content.body = input.body
-      content.categoryIdentifier = "MEETING_ALARM_ACTIONS"
-      content.userInfo = ["meetingId": input.meetingId]
+      content.categoryIdentifier = input.categoryIdentifier
+      var userInfo: [AnyHashable: Any] = [:]
+      if !input.meetingId.isEmpty { userInfo["meetingId"] = input.meetingId }
+      if !input.type.isEmpty { userInfo["type"] = input.type }
+      content.userInfo = userInfo
       content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: input.sound))
       let date = Date(timeIntervalSince1970: input.fireAt / 1000)
       guard date > Date() else { promise.resolve(nil); return }

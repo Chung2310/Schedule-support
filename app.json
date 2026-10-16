@@ -5,9 +5,9 @@
     "owner": "igen-technology",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/logo.png",
+    "icon": "./assets/logomoi.png",
     "web": {
-      "favicon": "./assets/logo.png"
+      "favicon": "./assets/logomoi.png"
     },
     "userInterfaceStyle": "light",
     "ios": {
@@ -22,12 +22,6 @@
     },
     "android": {
       "package": "com.company.ceovoicecalendar",
-      "adaptiveIcon": {
-        "backgroundColor": "#0A2540",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.POST_NOTIFICATIONS",

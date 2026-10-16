@@ -49,6 +49,7 @@ function alarmHarness() {
     'expo-notifications': { setNotificationHandler() {} },
     'react-native': { Platform: { OS: 'web' }, AppState: { currentState: 'active' } },
     './storage': { StorageService: storage },
+    './meetingVoice': { MeetingVoice: { prepare: async () => null } },
     './speechService': { SpeechService: {
       stop: async () => {},
       speakVoiceReminder: async () => { events.speech++; enteredSpeech.resolve(); await finishSpeech.promise; },

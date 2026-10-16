@@ -8,6 +8,7 @@ import {
   Switch,
   Platform,
   ScrollView,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppSettings, DEFAULT_SETTINGS } from '../types/settings';
@@ -35,6 +36,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [leadTime, setLeadTime] = useState(settings.defaultAdvanceNoticeMinutes ?? 15);
   const [repeatInterval, setRepeatInterval] = useState(settings.defaultRepeatIntervalMinutes ?? 5);
+  const [dailyBriefingHour, setDailyBriefingHour] = useState((settings.dailyBriefingTime ?? DEFAULT_SETTINGS.dailyBriefingTime).split(':')[0] ?? '07');
+  const [dailyBriefingMinute, setDailyBriefingMinute] = useState((settings.dailyBriefingTime ?? DEFAULT_SETTINGS.dailyBriefingTime).split(':')[1] ?? '00');
+  const [dailyBriefingTimeError, setDailyBriefingTimeError] = useState('');
   const [stopOnMeetingStart, setStopOnMeetingStart] = useState(settings.stopOnMeetingStart ?? true);
   const [hapticEnabled, setHapticEnabled] = useState(settings.hapticEnabled ?? true);
   const [isPlayingTest, setIsPlayingTest] = useState(false);
@@ -78,8 +82,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleDone = () => {
+    const hour = Number(dailyBriefingHour);
+    const minute = Number(dailyBriefingMinute);
+    if (!/^\d{1,2}$/.test(dailyBriefingHour) || !/^\d{1,2}$/.test(dailyBriefingMinute) ||
+        hour > 23 || minute > 59) {
+      setDailyBriefingTimeError('Giờ từ 0 đến 23 và phút từ 0 đến 59.');
+      return;
+    }
     onSave({
       ...settings,
+      dailyBriefingTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
       defaultAdvanceNoticeMinutes: leadTime,
       defaultRepeatIntervalMinutes: repeatInterval,
       speechVoice,
@@ -89,6 +101,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleReset = () => {
+    setDailyBriefingHour(DEFAULT_SETTINGS.dailyBriefingTime.split(':')[0] ?? '07');
+    setDailyBriefingMinute(DEFAULT_SETTINGS.dailyBriefingTime.split(':')[1] ?? '00');
+    setDailyBriefingTimeError('');
     setLeadTime(DEFAULT_SETTINGS.defaultAdvanceNoticeMinutes);
     setRepeatInterval(DEFAULT_SETTINGS.defaultRepeatIntervalMinutes);
     setSpeechVoice(DEFAULT_SETTINGS.speechVoice);
@@ -117,6 +132,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent}>
           {/* Group 1: Nhắc lịch & Báo thức */}
           <View style={styles.groupCard}>
+            <View style={styles.settingRow}>
+              <View style={styles.rowLabelGroup}>
+                <Ionicons name="sunny-outline" size={17} color="#0A2540" />
+                <View style={styles.briefingLabelGroup}>
+                  <Text style={styles.rowLabel}>Nhắc lịch tổng thể</Text>
+                  <Text style={styles.briefingHint}>Đọc lịch hôm nay (24 giờ)</Text>
+                </View>
+              </View>
+              <View style={styles.briefingTimeFields}>
+                <TextInput
+                  value={dailyBriefingHour}
+                  onChangeText={(value) => {
+                    setDailyBriefingHour(value.replace(/\D/g, '').slice(0, 2));
+                    setDailyBriefingTimeError('');
+                  }}
+                  style={styles.briefingTimeInput}
+                  placeholder="07"
+                  keyboardType="numeric"
+                  maxLength={2}
+                  selectTextOnFocus
+                  accessibilityLabel="Giờ nhắc lịch tổng thể"
+                  returnKeyType="next"
+                />
+                <Text style={styles.briefingTimeSeparator}>:</Text>
+                <TextInput
+                  value={dailyBriefingMinute}
+                  onChangeText={(value) => {
+                    setDailyBriefingMinute(value.replace(/\D/g, '').slice(0, 2));
+                    setDailyBriefingTimeError('');
+                  }}
+                  style={styles.briefingTimeInput}
+                  placeholder="00"
+                  keyboardType="numeric"
+                  maxLength={2}
+                  selectTextOnFocus
+                  accessibilityLabel="Phút nhắc lịch tổng thể"
+                  returnKeyType="done"
+                />
+              </View>
+            </View>
+            {dailyBriefingTimeError ? <Text style={styles.briefingTimeError}>{dailyBriefingTimeError}</Text> : null}
+
+            <View style={styles.divider} />
+
             {/* Hàng 1: Báo trước */}
             <View style={styles.settingRow}>
               <View style={styles.rowLabelGroup}>
@@ -409,6 +468,24 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     fontWeight: '600',
   },
+  briefingLabelGroup: { gap: 2 },
+  briefingHint: { color: '#64748B', fontSize: 11.5 },
+  briefingTimeFields: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  briefingTimeInput: {
+    width: 42,
+    paddingHorizontal: 4,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+    color: '#0A2540',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  briefingTimeSeparator: { color: '#0A2540', fontSize: 16, fontWeight: '700' },
+  briefingTimeError: { color: '#B91C1C', fontSize: 12, paddingHorizontal: 27, paddingBottom: 8 },
   segmentedControl: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',

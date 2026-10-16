@@ -25,6 +25,8 @@ const NOTIFICATION_CATEGORY_ID = 'MEETING_ALARM_ACTIONS';
 const NOTIFICATION_CHANNEL_ID = 'ceo_meeting_alarms_chime_v1';
 const NOTIFICATION_SOUND = 'meeting_reminder.wav';
 const DAILY_BRIEFING_ID = 'ceo_daily_schedule_briefing';
+// Keep the spoken agenda comfortably below the native notification sound limit.
+const MAX_DAILY_BRIEFING_VOICE_LENGTH = 360;
 const DISMISS_ACTION = 'DISMISS_ACTION';
 
 interface AlarmCallbacks {
@@ -54,10 +56,38 @@ export function buildTodayScheduleBriefing(todayMeetings: Meeting[], date = new 
     return [`${label} (${meetings.length}):\n${lines.join('\n')}`];
   });
 
+  const spokenDate = `Hôm nay, ngày ${date.getDate()} tháng ${date.getMonth() + 1} năm ${date.getFullYear()}.`;
+  let spokenText = count === 0
+    ? `${spokenDate} Bạn không có cuộc họp nào.`
+    : `${spokenDate} Bạn có ${count} cuộc họp.`;
+  if (count > 0) {
+    for (const [index, meeting] of sorted.entries()) {
+      const meetingDate = new Date(meeting.meetingTime);
+      const timeText = `${meetingDate.getHours()} giờ${meetingDate.getMinutes() ? ` ${meetingDate.getMinutes()} phút` : ''}`;
+      const title = cleanReminderText(meeting.title) || 'cuộc họp';
+      const separator = ' ';
+      const remaining = count - index - 1;
+      const omittedMeetings = remaining > 0 ? ` Còn ${remaining} cuộc họp khác trong lịch.` : '';
+      const titleBudget = MAX_DAILY_BRIEFING_VOICE_LENGTH - spokenText.length - separator.length - timeText.length - 2 - omittedMeetings.length;
+      if (titleBudget < 2) {
+        spokenText += ` Còn ${count - index} cuộc họp khác trong lịch.`;
+        break;
+      }
+      let shortTitle = title;
+      if (shortTitle.length > titleBudget) {
+        const prefix = shortTitle.slice(0, Math.max(1, titleBudget - 1));
+        const lastSpace = prefix.lastIndexOf(' ');
+        shortTitle = `${prefix.slice(0, lastSpace > 0 ? lastSpace : prefix.length)}…`;
+      }
+      spokenText += `${separator}${timeText}, ${shortTitle}.`;
+    }
+  }
+
   return {
-    title: `📅 Lịch Hôm Nay (${dateFormatted}) • ${count} cuộc hẹn`,
-    subtitle: count === 0 ? 'Lịch trống' : `Tổng hợp ${count} cuộc hẹn trong ngày`,
-    body: count === 0 ? 'Hôm nay không có lịch hẹn nào.' : sections.join('\n\n'),
+    title: `📅 Lịch Hôm Nay (${dateFormatted}) • ${count} cuộc họp`,
+    subtitle: count === 0 ? 'Lịch trống' : `Tổng hợp ${count} cuộc họp trong ngày`,
+    body: count === 0 ? 'Hôm nay không có cuộc họp nào.' : sections.join('\n\n'),
+    spokenText,
     todayCount: count,
   };
 }
@@ -112,9 +142,17 @@ class AlarmManagerService {
 
   private async handleResponse(response: Notifications.NotificationResponse) {
     const request = response.notification.request;
+    const responseKey = `${request.identifier}:${response.actionIdentifier}`;
+    if (request.content.data?.type === 'DAILY_BRIEFING') {
+      const last = Notifications.getLastNotificationResponse();
+      if (last?.notification.request.identifier === request.identifier &&
+          last.actionIdentifier === response.actionIdentifier) {
+        Notifications.clearLastNotificationResponse();
+      }
+      return;
+    }
     const meetingId = request.content.data?.meetingId;
     if (typeof meetingId !== 'string') return;
-    const responseKey = `${request.identifier}:${response.actionIdentifier}`;
     if (this.handledResponses.has(responseKey)) return;
     this.handledResponses.add(responseKey);
     try {
@@ -207,7 +245,11 @@ class AlarmManagerService {
       }
 
       const targetTime = new Date(now);
-      targetTime.setHours(7, 0, 0, 0);
+      const briefingTime = /^(\d{1,2}):([0-5]\d)$/.exec(settings.dailyBriefingTime || '');
+      const validBriefingTime = Boolean(briefingTime && Number(briefingTime[1]) <= 23);
+      const briefingHour = validBriefingTime ? Number(briefingTime![1]) : 7;
+      const briefingMinute = validBriefingTime ? Number(briefingTime![2]) : 0;
+      targetTime.setHours(briefingHour, briefingMinute, 0, 0);
       if (targetTime.getTime() <= now.getTime()) targetTime.setDate(targetTime.getDate() + 1);
       const targetMeetings = meetings.filter((meeting) => isSameDay(new Date(meeting.meetingTime), targetTime));
       const briefing = buildTodayScheduleBriefing(targetMeetings, targetTime);
@@ -268,6 +310,44 @@ class AlarmManagerService {
           } catch {
             this.voiceFallbackMeetingIds.add(meeting.id);
           }
+        }
+      }
+
+      // Replace the daily chime with its spoken agenda when offline synthesis
+      // is available. Keeping the chime scheduled first provides a fallback.
+      const briefingVoice = typeof MeetingVoice.prepareText === 'function'
+        ? await MeetingVoice.prepareText(briefing.spokenText, settings).catch(() => null)
+        : null;
+      if (briefingVoice && targetTime.getTime() > Date.now()) {
+        const content = {
+          title: briefing.title,
+          subtitle: briefing.subtitle,
+          body: briefing.body,
+          data: { type: 'DAILY_BRIEFING', voiceKey: briefingVoice.key },
+        };
+        try {
+          if (Platform.OS === 'ios') {
+            await MeetingVoice.scheduleIOS({
+              ...content,
+              identifier: DAILY_BRIEFING_ID,
+              sound: briefingVoice.sound,
+              type: 'DAILY_BRIEFING',
+              fireAt: targetTime.getTime(),
+            });
+          } else {
+            await Notifications.scheduleNotificationAsync({
+              identifier: DAILY_BRIEFING_ID,
+              content: { ...content, sound: NOTIFICATION_SOUND },
+              trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.DATE,
+                date: targetTime,
+                channelId: briefingVoice.channelId,
+              },
+            });
+          }
+          keys.push(briefingVoice.key);
+        } catch {
+          // The already scheduled chime remains queued if voice scheduling fails.
         }
       }
       await MeetingVoice.prune(keys);

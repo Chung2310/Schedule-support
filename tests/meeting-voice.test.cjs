@@ -5,6 +5,7 @@ const { createLoader } = require('./load-typescript.cjs');
 function load(native, platform = 'android', version = 34) {
   return createLoader({
     expo: { requireOptionalNativeModule: () => native },
+    'expo-speech': { getAvailableVoicesAsync: async () => [] },
     'react-native': { Platform: { OS: platform, Version: version } },
   })('src/services/meetingVoice.ts');
 }
@@ -21,10 +22,21 @@ test('legacy voice labels are removed without deleting words in the meeting titl
 test('voice generation forwards the meeting content, pitch and rate to the device', async () => {
   const asset = { key: 'key', sound: 'voice.wav', channelId: 'voice' };
   const { MeetingVoice } = load({ prepare: async (...args) => {
-    assert.deepEqual(args, ['10 giờ. kinh doanh', 0.95, 1.1]);
+    assert.deepEqual(args, ['10 giờ. kinh doanh', 0.95, 1.1, 'vi-VN.voice1']);
     return asset;
   } });
-  assert.equal(await MeetingVoice.prepare(meeting, settings), asset);
+  assert.equal(await MeetingVoice.prepare(meeting, { ...settings, speechVoice: 'vi-VN.voice1' }), asset);
+});
+
+test('available voice list only includes Vietnamese voices supported by the device', async () => {
+  const { MeetingVoice } = load({
+    getAvailableVoices: async () => [
+      { identifier: 'vi-VN.voice1', name: 'Voice 1', language: 'vi-VN' },
+      { identifier: 'en-US.voice1', name: 'Voice 2', language: 'en-US' },
+    ],
+  });
+  const voices = await MeetingVoice.getAvailableVoices();
+  assert.deepEqual(voices.map((voice) => voice.identifier), ['vi-VN.voice1']);
 });
 
 test('missing native module, unsupported platforms and failed TTS return a chime fallback', async () => {
