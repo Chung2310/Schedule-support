@@ -24,7 +24,9 @@ interface VoiceNotification {
   subtitle: string;
   body: string;
   sound: string;
-  meetingId: string;
+  meetingId?: string;
+  type?: string;
+  categoryIdentifier?: string;
   fireAt: number;
 }
 
@@ -68,10 +70,14 @@ export const MeetingVoice = {
   },
 
   async prepare(meeting: Meeting, settings: AppSettings): Promise<MeetingVoiceAsset | null> {
+    return this.prepareText(meetingVoiceText(meeting), settings);
+  },
+
+  async prepareText(text: string, settings: AppSettings): Promise<MeetingVoiceAsset | null> {
     if (!native || Platform.OS === 'web' || (Platform.OS === 'android' && Number(Platform.Version) < 26)) return null;
     try {
       return await native.prepare(
-        meetingVoiceText(meeting),
+        text,
         settings.speechRate,
         settings.speechPitch,
         settings.speechVoice ?? ''

@@ -1,4 +1,5 @@
 export interface AppSettings {
+  dailyBriefingTime: string; // Giờ nhắc lịch tổng thể đầu ngày, định dạng HH:mm
   defaultAdvanceNoticeMinutes: number; // Mặc định: 15 phút
   defaultRepeatIntervalMinutes: number; // Mặc định: 5 phút
   speechPitch: number; // Cao độ (0.8 - 1.2, default 1.0)
@@ -10,6 +11,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  dailyBriefingTime: '07:00',
   defaultAdvanceNoticeMinutes: 15,
   defaultRepeatIntervalMinutes: 5,
   speechPitch: 1.0,
