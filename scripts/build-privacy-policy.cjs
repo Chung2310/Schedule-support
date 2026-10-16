@@ -23,7 +23,10 @@ const html = `<!doctype html>
 </main></body>
 </html>
 `;
-const output = path.join(__dirname, '..', 'docs', 'privacy-policy.html');
-fs.mkdirSync(path.dirname(output), { recursive: true });
-fs.writeFileSync(output, html, 'utf8');
-console.log('Updated docs/privacy-policy.html from the in-app policy.');
+const outputDirectory = path.join(__dirname, '..', 'docs');
+fs.mkdirSync(outputDirectory, { recursive: true });
+// Serve the policy at the Pages root and at the previously documented URL.
+for (const filename of ['index.html', 'privacy-policy.html']) {
+  fs.writeFileSync(path.join(outputDirectory, filename), html, 'utf8');
+}
+console.log('Updated docs/index.html and docs/privacy-policy.html from the in-app policy.');

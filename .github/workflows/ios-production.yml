@@ -42,7 +42,7 @@ jobs:
       - name: Generate public privacy policy
         run: |
           npm run legal:build
-          git diff --exit-code -- docs/privacy-policy.html
+          git diff --exit-code -- docs/index.html docs/privacy-policy.html
 
       - name: Check Expo dependencies and configuration
         run: npx expo-doctor
