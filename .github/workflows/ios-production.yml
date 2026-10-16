@@ -1,4 +1,4 @@
-name: App CI and Production iOS IPA
+name: App CI and Production iOS Release
 
 on:
   push:
@@ -64,8 +64,11 @@ jobs:
     concurrency:
       group: ios-production-build
       cancel-in-progress: false
+    outputs:
+      ipa-artifact-id: ${{ steps.ipa-artifact.outputs.artifact-id }}
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
       EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
       EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
@@ -85,6 +88,7 @@ jobs:
       - name: Check production build configuration
         run: |
           node scripts/build-ios.cjs --check
+          node scripts/submit-ios.cjs --check
           npm run ios:check
 
       - name: Verify Expo project access
@@ -106,6 +110,7 @@ jobs:
         run: python3 scripts/check-ios-artifact.py "$RUNNER_TEMP/ios-artifacts/igencheck.ipa"
 
       - name: Save validated IPA and build information
+        id: ipa-artifact
         uses: actions/upload-artifact@v4
         with:
           name: igencheck-ios-${{ github.run_id }}-${{ github.run_attempt }}
@@ -114,3 +119,48 @@ jobs:
             ${{ runner.temp }}/ios-artifacts/build-info.json
           if-no-files-found: error
           retention-days: 7
+
+  submit-ios:
+    name: Upload validated production IPA to App Store Connect
+    if: ${{ github.ref == 'refs/heads/production' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: build-ios
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: ios-production-submit
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+    steps:
+      - name: Check out production source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check production upload configuration
+        run: |
+          node scripts/submit-ios.cjs --check
+          node -e "if (!/^\d+$/.test(process.env.IPA_ARTIFACT_ID || '')) throw new Error('Validated IPA artifact ID is missing.');"
+        env:
+          IPA_ARTIFACT_ID: ${{ needs.build-ios.outputs.ipa-artifact-id }}
+
+      - name: Download the validated IPA from the build job
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build-ios.outputs.ipa-artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/ios-artifacts
+
+      - name: Submit this IPA and wait for upload completion
+        run: node scripts/submit-ios.cjs

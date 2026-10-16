@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const { spawnSync } = require('node:child_process');
 const yaml = require('yaml');
 const { validateBuildContext, prepareBuildConfig, buildArguments } = require('../scripts/build-ios.cjs');
+const { prepareSubmitConfig, validateArtifact, submitArguments } = require('../scripts/submit-ios.cjs');
 
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, '.github/workflows/ios-production.yml'), 'utf8');
@@ -32,6 +33,8 @@ test('only production push and production manual dispatch can enter the macOS bu
   assert.equal(build.needs, 'validate');
   assert.equal(workflow.jobs.validate['runs-on'], 'ubuntu-latest');
   assert.equal(build['runs-on'], 'macos-26');
+  assert.equal(workflow.jobs['submit-ios'].if, build.if);
+  assert.equal(workflow.jobs['submit-ios'].needs, 'build-ios');
   assert.deepEqual(workflow.on.push.branches, ['develop', 'production']);
 });
 
@@ -50,7 +53,7 @@ test('build script independently rejects other branches, events, hosts and missi
   assert.throws(() => validateBuildContext({ ...environment, EXPO_TOKEN: '' }, 'darwin'), /EXPO_TOKEN/);
 });
 
-test('build uses a fixed production profile and local compiler without auto submission', () => {
+test('build uses a fixed production profile and local compiler with submission in a separate job', () => {
   const args = buildArguments('/tmp/ios-artifacts/app.ipa');
   assert.equal(args[args.indexOf('--profile') + 1], 'production');
   assert.equal(args[args.indexOf('--platform') + 1], 'ios');
@@ -58,7 +61,24 @@ test('build uses a fixed production profile and local compiler without auto subm
   assert.ok(args.includes('--non-interactive'));
   assert.ok(args.includes('--freeze-credentials'));
   assert.equal(args[args.indexOf('--output') + 1], '/tmp/ios-artifacts/app.ipa');
-  assert.doesNotMatch(source, /--auto-submit|ASC_APP_ID|eas-cli@latest submit/);
+  assert.doesNotMatch(source, /--auto-submit/);
+  const submit = workflow.jobs['submit-ios'];
+  assert.equal(submit['runs-on'], 'ubuntu-latest');
+  assert.equal(submit.steps.at(-1).run, 'node scripts/submit-ios.cjs');
+  const uploadArgs = submitArguments('/tmp/ios-artifacts/igencheck.ipa');
+  assert.equal(uploadArgs[2], 'submit');
+  assert.equal(uploadArgs[uploadArgs.indexOf('--path') + 1], '/tmp/ios-artifacts/igencheck.ipa');
+  assert.ok(uploadArgs.includes('--wait'));
+  assert.ok(uploadArgs.includes('--non-interactive'));
+  assert.ok(!uploadArgs.includes('--latest'));
+  assert.ok(!uploadArgs.includes('build'));
+  assert.equal(prepareSubmitConfig(eas, {}).submit.production.ios.ascAppId, '6823442026');
+  assert.throws(() => prepareSubmitConfig(eas, { ASC_APP_ID: '1234567890' }), /6823442026/);
+  const metadata = { bundleIdentifier: 'com.igen.schedule', displayName: 'iGen Check',
+    appleTeam: 'VP77TD9A77', commit: 'production-commit', sha256: 'a'.repeat(64) };
+  assert.doesNotThrow(() => validateArtifact(metadata, metadata.sha256, { GITHUB_SHA: metadata.commit }));
+  assert.throws(() => validateArtifact(metadata, 'b'.repeat(64), { GITHUB_SHA: metadata.commit }), /checksum/);
+  assert.throws(() => validateArtifact(metadata, metadata.sha256, { GITHUB_SHA: 'another-commit' }), /different commit/);
   assert.equal(build.steps.find((step) => step.name === 'Build signed production IPA locally').run, 'npm run build:ios');
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts['build:ios'], 'node scripts/build-ios.cjs');
@@ -110,6 +130,11 @@ test('production builds serialize across triggers and validated artifacts are re
   assert.match(build.steps[upload].with.path, /igencheck\.ipa/);
   assert.match(build.steps[upload].with.path, /build-info\.json/);
   assert.equal(build.steps[upload].with['if-no-files-found'], 'error');
+  assert.equal(build.steps[upload].id, 'ipa-artifact');
+  assert.equal(build.outputs['ipa-artifact-id'], '${{ steps.ipa-artifact.outputs.artifact-id }}');
+  const download = workflow.jobs['submit-ios'].steps.find((step) => step.uses?.startsWith('actions/download-artifact@'));
+  assert.equal(download.with['artifact-ids'], '${{ needs.build-ios.outputs.ipa-artifact-id }}');
+  assert.equal(download.with['merge-multiple'], true);
 });
 
 test('IPA metadata and profile regression checks pass without a native build', () => {
