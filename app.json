@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Schedule Support",
-    "slug": "nhac-lich-giong-noi",
+    "slug": "schedule",
     "owner": "igen-technology",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -48,7 +48,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "8cbefa70-33c4-4e3e-bb32-b532de127cc3"
+        "projectId": "6b866bf1-af89-481f-840e-c2779ec6c5fb"
       }
     }
   }
