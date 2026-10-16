@@ -16,7 +16,7 @@ class ArtifactTests(unittest.TestCase):
     def info(self):
         return {
             "CFBundleIdentifier": CHECKER.BUNDLE_ID,
-            "CFBundleDisplayName": "Schedule Support",
+            "CFBundleDisplayName": "iGen Check",
             "CFBundleVersion": "5", "CFBundleShortVersionString": "1.0.0",
             "CFBundleSupportedPlatforms": ["iPhoneOS"],
             **{key: "A meaningful permission description" for key in CHECKER.PURPOSE_STRINGS},

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Schedule Support",
+    "name": "iGen Check",
     "slug": "schedule",
     "owner": "igen-technology",
     "version": "1.0.0",
@@ -16,7 +16,7 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Chuyển lời nói thành văn bản để tạo lịch hẹn. Dịch vụ nhận diện của Apple có thể xử lý âm thanh qua mạng.",
         "NSMicrophoneUsageDescription": "Dùng micro khi bạn bấm ghi âm để nhập lịch hẹn bằng giọng nói. Bạn cũng có thể nhập bằng bàn phím.",
-        "NSPhotoLibraryUsageDescription": "Thư viện xử lý tệp tích hợp chỉ có thể đọc ảnh khi bạn cho phép. Schedule Support không tự thu thập hay tải ảnh lên máy chủ; bạn có thể từ chối quyền này và vẫn quản lý lịch bình thường.",
+        "NSPhotoLibraryUsageDescription": "Thư viện xử lý tệp tích hợp chỉ có thể đọc ảnh khi bạn cho phép. iGen Check không tự thu thập hay tải ảnh lên máy chủ; bạn có thể từ chối quyền này và vẫn quản lý lịch bình thường.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },

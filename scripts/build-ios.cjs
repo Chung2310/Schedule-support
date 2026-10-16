@@ -81,7 +81,7 @@ function run() {
     return;
   }
   fs.mkdirSync(outputDirectory, { recursive: true });
-  const output = path.join(outputDirectory, 'schedule-support.ipa');
+  const output = path.join(outputDirectory, 'igencheck.ipa');
   const result = spawnSync('npx', buildArguments(output), { cwd: projectRoot, env: process.env, stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`Local iOS build failed (exit ${result.status ?? result.signal}).`);

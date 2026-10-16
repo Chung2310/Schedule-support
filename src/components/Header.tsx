@@ -40,7 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
           style={styles.logo}
           resizeMode="contain"
           accessible
-          accessibilityLabel="Igen check"
+          accessibilityLabel="iGen Check"
         />
       </View>
 

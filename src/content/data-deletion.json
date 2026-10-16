@@ -1,8 +1,8 @@
 {
   "title": "Xóa dữ liệu",
-  "appName": "Igen check",
+  "appName": "iGen Check",
   "updatedAt": "16/10/2026",
-  "intro": "Igen check không có tài khoản và không lưu lịch trên máy chủ của đội phát triển. Bạn có thể xóa dữ liệu trực tiếp trên thiết bị theo hướng dẫn dưới đây.",
+  "intro": "iGen Check không có tài khoản và không lưu lịch trên máy chủ của đội phát triển. Bạn có thể xóa dữ liệu trực tiếp trên thiết bị theo hướng dẫn dưới đây.",
   "sections": [
     {
       "title": "1. Xóa từng lịch hẹn",
@@ -10,11 +10,11 @@
     },
     {
       "title": "2. Xóa toàn bộ dữ liệu trên điện thoại",
-      "paragraphs": ["Trên Android: mở Cài đặt thiết bị, chọn Ứng dụng, chọn Igen check, vào mục bộ nhớ và chọn xóa dữ liệu ứng dụng. Tên mục có thể khác nhau tùy thiết bị. Xóa bộ nhớ đệm không đồng nghĩa với xóa dữ liệu.", "Trên iOS: mở Cài đặt, chọn Cài đặt chung, Dung lượng iPhone/iPad, chọn Igen check rồi chọn Xóa ứng dụng. Chức năng Gỡ bỏ ứng dụng (Offload App) giữ lại tài liệu và dữ liệu, nên không phù hợp nếu bạn muốn xóa toàn bộ dữ liệu cục bộ.", "Việc xóa dữ liệu hoặc xóa ứng dụng sẽ loại bỏ lịch và cài đặt cục bộ. Nút Đặt lại mặc định trong Cài đặt ứng dụng chỉ đặt lại các tùy chọn nhắc lịch, không xóa lịch hẹn."]
+      "paragraphs": ["Trên Android: mở Cài đặt thiết bị, chọn Ứng dụng, chọn iGen Check, vào mục bộ nhớ và chọn xóa dữ liệu ứng dụng. Tên mục có thể khác nhau tùy thiết bị. Xóa bộ nhớ đệm không đồng nghĩa với xóa dữ liệu.", "Trên iOS: mở Cài đặt, chọn Cài đặt chung, Dung lượng iPhone/iPad, chọn iGen Check rồi chọn Xóa ứng dụng. Chức năng Gỡ bỏ ứng dụng (Offload App) giữ lại tài liệu và dữ liệu, nên không phù hợp nếu bạn muốn xóa toàn bộ dữ liệu cục bộ.", "Việc xóa dữ liệu hoặc xóa ứng dụng sẽ loại bỏ lịch và cài đặt cục bộ. Nút Đặt lại mặc định trong Cài đặt ứng dụng chỉ đặt lại các tùy chọn nhắc lịch, không xóa lịch hẹn."]
     },
     {
       "title": "3. Xóa dữ liệu trên web",
-      "paragraphs": ["Trong cài đặt trình duyệt, tìm dữ liệu trang web của địa chỉ bạn dùng để mở Igen check và xóa dữ liệu của trang đó. Sau đó tải lại trang để kiểm tra.", "Thực hiện trên từng trình duyệt hoặc hồ sơ trình duyệt bạn đã sử dụng. Xóa dữ liệu ở một nơi không xóa dữ liệu trên các thiết bị khác."]
+      "paragraphs": ["Trong cài đặt trình duyệt, tìm dữ liệu trang web của địa chỉ bạn dùng để mở iGen Check và xóa dữ liệu của trang đó. Sau đó tải lại trang để kiểm tra.", "Thực hiện trên từng trình duyệt hoặc hồ sơ trình duyệt bạn đã sử dụng. Xóa dữ liệu ở một nơi không xóa dữ liệu trên các thiết bị khác."]
     },
     {
       "title": "4. Quyền truy cập và bản sao lưu",

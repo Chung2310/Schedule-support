@@ -1,6 +1,6 @@
 # Build IPA production trên GitHub macOS
 
-Cập nhật: **16/10/2026**. Dự án: **Schedule Support — Expo SDK 57**.
+Cập nhật: **16/10/2026**. Dự án: **iGen Check — Expo SDK 57**.
 
 ## 1. Cách build đã triển khai trong repo
 
@@ -81,7 +81,7 @@ Cần Apple Distribution Certificate **kèm private key** và App Store provisio
 | EAS project ID | `6b866bf1-af89-481f-840e-c2779ec6c5fb` |
 | Bundle ID | `com.igen.schedule` |
 | Apple Team | `VP77TD9A77` |
-| Tên hiển thị | `Schedule Support` |
+| Tên hiển thị | `iGen Check` |
 
 Có thể kiểm tra từ Windows sau khi đăng nhập Expo đúng tài khoản/token:
 
@@ -113,7 +113,7 @@ npx --yes eas-cli@latest build \
   --local \
   --non-interactive \
   --freeze-credentials \
-  --output "$RUNNER_TEMP/ios-artifacts/schedule-support.ipa"
+  --output "$RUNNER_TEMP/ios-artifacts/igencheck.ipa"
 ```
 
 `npm run build:ios` trên máy cá nhân hoặc nhánh khác dừng với hướng dẫn chạy GitHub Actions. Đây là lệnh dành cho runner production.
@@ -131,8 +131,8 @@ Nguồn: [eas.json](https://docs.expo.dev/eas/json/), [build versions](https://d
 3. Merge vào production.
 4. Vào **Actions → App CI and Production iOS IPA → lần chạy tương ứng**.
 5. Theo dõi job **Build production IPA on GitHub macOS**.
-6. Khi thành công, mở **Artifacts** và tải `schedule-support-ios-<run-id>-<attempt>`.
-7. Giải nén để lấy `schedule-support.ipa` và `build-info.json`.
+6. Khi thành công, mở **Artifacts** và tải `igencheck-ios-<run-id>-<attempt>`.
+7. Giải nén để lấy `igencheck.ipa` và `build-info.json`.
 
 `build-info.json` và phần Summary của lần chạy ghi version, build number, commit, Bundle ID, Apple Team, phiên bản Xcode và SHA-256 của file IPA.
 

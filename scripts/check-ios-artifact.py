@@ -38,7 +38,7 @@ def inspect_archive(ipa):
         app_root = roots.pop()
         info = plistlib.loads(archive.read(f"{app_root}/Info.plist"))
         require(info.get("CFBundleIdentifier") == BUNDLE_ID, "Wrong IPA bundle identifier.")
-        require(info.get("CFBundleDisplayName") == "Schedule Support", "Wrong IPA display name.")
+        require(info.get("CFBundleDisplayName") == "iGen Check", "Wrong IPA display name.")
         for key in PURPOSE_STRINGS:
             value = info.get(key)
             require(isinstance(value, str) and value.strip(), f"Missing privacy purpose string: {key}")

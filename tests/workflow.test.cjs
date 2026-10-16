@@ -107,7 +107,7 @@ test('production builds serialize across triggers and validated artifacts are re
   const upload = build.steps.findIndex((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.ok(validation >= 0 && upload > validation);
   assert.equal(build.steps[upload].with['retention-days'], 7);
-  assert.match(build.steps[upload].with.path, /schedule-support\.ipa/);
+  assert.match(build.steps[upload].with.path, /igencheck\.ipa/);
   assert.match(build.steps[upload].with.path, /build-info\.json/);
   assert.equal(build.steps[upload].with['if-no-files-found'], 'error');
 });

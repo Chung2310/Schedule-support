@@ -32,12 +32,14 @@ if (!infoPlist) {
 }
 
 const expected = {
+  name: 'iGen Check',
   owner: 'igen-technology',
   slug: 'schedule',
   bundleIdentifier: 'com.igen.schedule',
   projectId: '6b866bf1-af89-481f-840e-c2779ec6c5fb',
 };
 const actual = {
+  name: config.name,
   owner: config.owner,
   slug: config.slug,
   bundleIdentifier: config.ios?.bundleIdentifier,

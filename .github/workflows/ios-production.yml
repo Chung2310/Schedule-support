@@ -103,14 +103,14 @@ jobs:
         run: npm run build:ios
 
       - name: Validate signed IPA and write build summary
-        run: python3 scripts/check-ios-artifact.py "$RUNNER_TEMP/ios-artifacts/schedule-support.ipa"
+        run: python3 scripts/check-ios-artifact.py "$RUNNER_TEMP/ios-artifacts/igencheck.ipa"
 
       - name: Save validated IPA and build information
         uses: actions/upload-artifact@v4
         with:
-          name: schedule-support-ios-${{ github.run_id }}-${{ github.run_attempt }}
+          name: igencheck-ios-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/ios-artifacts/schedule-support.ipa
+            ${{ runner.temp }}/ios-artifacts/igencheck.ipa
             ${{ runner.temp }}/ios-artifacts/build-info.json
           if-no-files-found: error
           retention-days: 7
