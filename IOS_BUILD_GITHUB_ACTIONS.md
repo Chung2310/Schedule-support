@@ -1,4 +1,4 @@
-# Build IPA production trên GitHub macOS
+# Build IPA production trên GitHub macOS và upload tự động lên Apple
 
 Cập nhật: **16/10/2026**. Dự án: **iGen Check — Expo SDK 57**.
 
@@ -20,9 +20,13 @@ Xcode biên dịch và ký IPA ngay trên GitHub
 Kiểm tra nội dung IPA, provisioning profile và chữ ký
     ↓
 Lưu IPA + build-info.json vào Artifacts trong 7 ngày
+    ↓
+Job Ubuntu tải đúng artifact ID, đối chiếu commit và SHA-256
+    ↓
+EAS Submit upload IPA lên App Store Connect và chờ hoàn tất
 ```
 
-Đầu ra là **IPA đã ký để phân phối App Store**. Workflow kết thúc sau khi lưu artifact.
+Đầu ra là **IPA đã ký và được upload lên App Store Connect**. Apple tiếp tục xử lý binary trước khi bản build xuất hiện trong TestFlight.
 
 `--local` chọn máy đang thực thi lệnh, tức runner macOS của GitHub. EAS CLI điều phối build và truy cập credentials; không tạo job EAS Cloud Build. Bạn tiếp tục làm việc trên Windows. Xem [EAS local builds](https://docs.expo.dev/build-reference/local-builds/).
 
@@ -36,7 +40,7 @@ Lưu IPA + build-info.json vào Artifacts trong 7 ngày
 | Chạy thủ công trên production | Có | Có, sau khi CI đạt |
 | Chạy thủ công trên nhánh khác | Có | Không |
 
-Workflow kiểm tra ref `refs/heads/production` và sự kiện `push`/`workflow_dispatch`. Script build cũng kiểm tra lại ref, sự kiện, hệ điều hành và môi trường GitHub Actions trước khi thực thi EAS.
+Workflow kiểm tra ref `refs/heads/production` và sự kiện `push`/`workflow_dispatch` cho cả build và upload. Script build kiểm tra lại ref, sự kiện, hệ điều hành và môi trường GitHub Actions; script submit kiểm tra production và chỉ upload IPA từ đúng commit của lần chạy.
 
 Các job production dùng chung concurrency group và không hủy build đang chạy. GitHub có thể thay thế lần đang chờ bằng lần mới hơn theo cơ chế concurrency của Actions.
 
@@ -49,6 +53,7 @@ Vào **Repository → Settings → Secrets and variables → Actions → Secrets
 | Secret | Tác dụng |
 | --- | --- |
 | `EXPO_TOKEN` | Truy cập project `@igen-technology/schedule` và credentials build đã lưu |
+| `ASC_APP_ID` (tùy chọn) | Nếu đã đặt, phải là `6823442026`; mặc định lấy app ID cố định trong `eas.json` |
 
 Token cần còn hiệu lực và có quyền trên đúng organization. Không đặt token vào biến `EXPO_PUBLIC_*`, mã nguồn hoặc tài liệu.
 
@@ -92,7 +97,9 @@ npx eas-cli@latest credentials --platform ios
 
 Các lệnh quản lý credentials không tạo build. Profile `com.igen.3s` không phù hợp ứng dụng này. Khi credentials thiếu hoặc hết hạn, sửa trong trình quản lý rồi chạy lại workflow.
 
-Build sử dụng `--freeze-credentials` để không tự thay credentials trong CI. `ASC_APP_ID` và API key upload không phải đầu vào của job chỉ tạo IPA.
+Build sử dụng `--freeze-credentials` để không tự thay credentials trong CI. Upload tự động dùng API key App Store Connect đã gán cho app trên EAS. Nếu chưa có key, mở `eas credentials --platform ios`, chọn production và thiết lập API key cho EAS Submit trước khi chạy. Token Expo và app ID không thay thế API key Apple.
+
+App đích được cố định là **iGen Check**, Apple ID **6823442026**. CI từ chối app ID khác.
 
 Nguồn: [app credentials](https://docs.expo.dev/app-signing/app-credentials/), [EAS CLI](https://docs.expo.dev/eas/cli/).
 
@@ -129,14 +136,24 @@ Nguồn: [eas.json](https://docs.expo.dev/eas/json/), [build versions](https://d
 1. Commit toàn bộ thay đổi workflow, scripts, tests, cấu hình và tài liệu.
 2. Push develop và chờ CI đạt.
 3. Merge vào production.
-4. Vào **Actions → App CI and Production iOS IPA → lần chạy tương ứng**.
+4. Vào **Actions → App CI and Production iOS Release → lần chạy tương ứng**.
 5. Theo dõi job **Build production IPA on GitHub macOS**.
 6. Khi thành công, mở **Artifacts** và tải `igencheck-ios-<run-id>-<attempt>`.
 7. Giải nén để lấy `igencheck.ipa` và `build-info.json`.
+8. Theo dõi job **Upload validated production IPA to App Store Connect**. Job này tự chạy sau build và artifact thành công.
+9. Khi upload hoàn tất, mở [TestFlight của iGen Check](https://appstoreconnect.apple.com/apps/6823442026/testflight) và theo dõi Apple xử lý. Nếu Apple gửi email lỗi `ITMS-...`, cần xử lý lỗi đó; trạng thái upload thành công chưa chứng minh binary đã qua xử lý.
 
 `build-info.json` và phần Summary của lần chạy ghi version, build number, commit, Bundle ID, Apple Team, phiên bản Xcode và SHA-256 của file IPA.
 
 Xem [tải workflow artifact](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts).
+
+### Upload thất bại thì chạy lại thế nào?
+
+Job `submit-ios` chạy riêng trên Ubuntu và tải artifact bằng ID do `build-ios` trả về. Nếu chỉ job submit thất bại, chọn **Re-run failed jobs** để gửi lại IPA đã tạo trong thời hạn lưu artifact. Chạy lại toàn bộ workflow sẽ build một IPA mới.
+
+Trước khi gửi lại, kiểm tra Apple đã nhận binary hay chưa nếu lỗi xảy ra sau upload hoặc job hết thời gian chờ. Không dùng `--latest` để chọn IPA cloud cũ.
+
+Script [submit-ios.cjs](scripts/submit-ios.cjs) gọi `eas submit --path ... --non-interactive --wait`; không gọi build. Cách này không dùng thêm lượt EAS Cloud Build. Xem [submit trong CI](https://docs.expo.dev/submit/ios/#use-other-cicd-services).
 
 ## 7. IPA được kiểm tra những gì?
 
@@ -164,6 +181,10 @@ Chỉ sau khi kiểm tra đạt, workflow mới lưu IPA và thông tin build th
 | Native compile thất bại | Đọc log bước Build signed production IPA locally |
 | IPA kiểm tra thất bại | Đọc lỗi Bundle ID/profile/privacy/chữ ký ở bước Validate signed IPA |
 | Không có artifact | Kiểm tra build và validation đều thành công; file được giữ 7 ngày |
+| Upload thiếu API key | Gán API key App Store Connect cho app trên EAS qua trình quản lý credentials |
+| Sai ASC_APP_ID | Đổi GitHub Secret về `6823442026` hoặc dùng giá trị mặc định trong `eas.json` |
+| IPA sai commit hoặc SHA-256 | Dừng upload và kiểm tra artifact của job build tương ứng |
+| Upload thành công nhưng TestFlight chưa có build | Kiểm tra đúng app, trạng thái xử lý của Apple và email lỗi binary |
 
 SDK 57 hiện yêu cầu Xcode 26.4+; workflow chọn cụ thể 26.6 đang được liệt kê trên runner, cùng phiên bản Xcode của IPA cloud đã đối chiếu trước đây. Các trường chọn phần mềm trong `eas.json` không tự thiết lập môi trường local runner.
 

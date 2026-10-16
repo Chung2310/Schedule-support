@@ -10,13 +10,17 @@ const expected = {
   bundleIdentifier: 'com.igen.schedule',
 };
 
-function validateBuildContext(env = process.env, platform = process.platform) {
+function validateProductionContext(env = process.env) {
   if (env.GITHUB_ACTIONS !== 'true' || env.GITHUB_REF !== 'refs/heads/production' ||
       !['push', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME)) {
-    throw new Error('iOS builds run only in GitHub Actions on production. Push production or run the workflow with branch production.');
+    throw new Error('iOS releases run only in GitHub Actions on production. Push production or run the workflow with branch production.');
   }
-  if (platform !== 'darwin') throw new Error('iOS builds require the GitHub macOS runner.');
   if (!env.EXPO_TOKEN?.trim()) throw new Error('Add EXPO_TOKEN to GitHub Actions secrets.');
+}
+
+function validateBuildContext(env = process.env, platform = process.platform) {
+  validateProductionContext(env);
+  if (platform !== 'darwin') throw new Error('iOS builds require the GitHub macOS runner.');
 }
 
 function prepareBuildConfig(app, eas, env = process.env) {
@@ -89,7 +93,7 @@ function run() {
   console.log(`IPA created: ${output}`);
 }
 
-module.exports = { validateBuildContext, prepareBuildConfig, buildArguments };
+module.exports = { validateProductionContext, validateBuildContext, prepareBuildConfig, buildArguments };
 if (require.main === module) {
   try { run(); } catch (error) {
     console.error(error.message);
