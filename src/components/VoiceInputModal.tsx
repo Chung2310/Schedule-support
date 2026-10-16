@@ -11,7 +11,6 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
-  AppState,
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,6 +45,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const [transcript, setTranscript] = useState(initialText);
   const [isListening, setIsListening] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Điều chỉnh thời gian nếu muốn
@@ -61,7 +61,27 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     STTService.stopListening();
     setIsListening(false);
     setIsStarting(false);
+    setIsFinishing(false);
   }, []);
+
+  useEffect(() => {
+    if (!isFinishing) return;
+    const timeout = setTimeout(() => {
+      stopListening();
+      setErrorMessage('Chưa nhận được kết quả cuối. Bạn có thể sửa văn bản bên dưới hoặc bấm mic để thử lại.');
+    }, 8000);
+    return () => clearTimeout(timeout);
+  }, [isFinishing, stopListening]);
+
+  const finishListening = async () => {
+    setIsFinishing(true);
+    try {
+      await STTService.finishListening();
+    } catch {
+      stopListening();
+      setErrorMessage('Không thể hoàn tất nhận diện. Bạn hãy thử lại hoặc nhập bằng bàn phím.');
+    }
+  };
 
   useEffect(() => {
     if (visible) {
@@ -76,20 +96,16 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
       } catch {}
 
     }
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'background') stopListening();
-    });
     // Opening a calendar slot does not start the microphone. The user taps mic explicitly.
     return () => {
-      subscription.remove();
       stopListening();
     };
-  }, [visible, initialText, sheetSlideAnim, stopListening]);
+  }, [visible, sheetSlideAnim, stopListening]);
 
   // Bộ phân tích ngôn ngữ tự nhiên chạy trực tiếp từ lời nói người dùng
   const parsed = useMemo(() => {
     if (!transcript.trim()) return null;
-    return parseVietnameseVoiceMeeting(transcript.trim(), selectedDate);
+    return parseVietnameseVoiceMeeting(transcript.trim(), new Date(), selectedDate);
   }, [transcript, selectedDate]);
 
   // Thời gian cuộc họp thực tế
@@ -115,15 +131,16 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   // Bắt đầu thu âm giọng nói từ micro
   const startListening = async () => {
-    if (isStarting) return;
+    if (isStarting || isFinishing || isListening) return;
     setErrorMessage(null);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
 
     // Trường hợp chạy trong Expo Go (chưa build native dev client)
-    if (!isNativeSTT) {
+    if (Platform.OS !== 'web' && !isNativeSTT) {
       setIsListening(false);
+      setErrorMessage('Bản ứng dụng này chưa hỗ trợ nhận diện giọng nói. Hãy dùng bản cài đầy đủ để thử mic, hoặc nhập bằng bàn phím.');
       inputRef.current?.focus();
       return;
     }
@@ -138,26 +155,43 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
         setTranscript(text);
         setTimeOffsetMinutes(0);
       },
+      onFinishing: () => {
+        setIsFinishing(true);
+      },
       onError: (err) => {
-        setIsStarting(false);
-        setIsListening(false);
-        if (err === 'PERMISSION_DENIED') {
+        stopListening();
+        const code = typeof err === 'string' ? err : err?.error;
+        if (code === 'PERMISSION_DENIED' || code === 'not-allowed') {
           setErrorMessage('Bạn có thể cấp quyền Micro và Nhận diện giọng nói trong Cài đặt thiết bị, hoặc nhập lịch bằng bàn phím.');
+        } else if (code === 'UNAVAILABLE' || code === 'service-not-allowed' || code === 'language-not-supported') {
+          setErrorMessage('Thiết bị chưa có dịch vụ nhận diện tiếng Việt khả dụng. Hãy kiểm tra dịch vụ giọng nói trong cài đặt thiết bị.');
+        } else if (code === 'no-speech') {
+          setErrorMessage('Chưa nghe rõ lời nói. Bấm mic và nói lại gần điện thoại hơn.');
+        } else if (code === 'NO_RESULT') {
+          setErrorMessage('Chưa nhận được lời nói. Bấm mic để nói lại hoặc nhập lịch bằng bàn phím.');
+        } else if (code === 'START_ENDED' || code === 'START_TIMEOUT') {
+          setErrorMessage(`Dịch vụ giọng nói chưa bật được micro (${code}). Hãy kiểm tra dịch vụ nhận diện giọng nói và thử lại.`);
+        } else if (code === 'APP_BACKGROUND' || code === 'APP_NOT_ACTIVE') {
+          setErrorMessage(`Phiên micro bị gián đoạn khi ứng dụng chuyển màn hình (${code}). Bấm mic để thử lại khi đang ở màn hình này.`);
+        } else if (code === 'audio-capture') {
+          setErrorMessage('Không mở được micro. Hãy kiểm tra quyền micro và đóng ứng dụng khác đang dùng micro rồi thử lại.');
+        } else if (code === 'network') {
+          setErrorMessage('Không kết nối được dịch vụ nhận diện. Kiểm tra Internet rồi thử lại.');
         } else {
-          setErrorMessage('Không nhận diện được giọng nói. Bạn hãy bấm mic trên bàn phím nhé.');
-          inputRef.current?.focus();
+          setErrorMessage(`Không nhận diện được giọng nói${code ? ` (${code})` : ''}. Bạn có thể bấm mic để thử lại hoặc nhập bằng bàn phím.`);
         }
       },
       onEnd: () => {
         setIsStarting(false);
         setIsListening(false);
+        setIsFinishing(false);
       },
     });
 
     if (!success) {
       setIsStarting(false);
       setIsListening(false);
-      inputRef.current?.focus();
+      setErrorMessage((previous) => previous ?? 'Không khởi động được micro. Bấm mic để thử lại.');
     }
   };
 
@@ -175,7 +209,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   // Xác nhận lưu lịch
   const handleConfirm = () => {
-    if (!transcript.trim()) return;
+    if (!transcript.trim() || isStarting || isListening || isFinishing) return;
 
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -208,6 +242,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   });
 
   const hasContent = transcript.trim().length > 0;
+  const speechBusy = isStarting || isListening || isFinishing;
+  const canConfirm = hasContent && !speechBusy;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
@@ -249,8 +285,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     styles.micButton,
                     isListening && styles.micButtonListening,
                   ]}
-                  onPress={isListening ? stopListening : startListening}
-                  disabled={isStarting}
+                  onPress={isListening ? finishListening : startListening}
+                  disabled={isStarting || isFinishing}
                   accessibilityRole="button"
                   accessibilityLabel={isListening ? 'Dừng nhận diện giọng nói' : 'Bắt đầu nhận diện giọng nói'}
                   activeOpacity={0.8}
@@ -262,10 +298,11 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   />
                 </TouchableOpacity>
 
-                <Text accessibilityLiveRegion="polite" style={[styles.micStatusText, isListening && styles.micStatusTextListening]}>
-                  {isStarting ? 'Đang chuẩn bị micro…' : isListening ? 'Đang nghe · Bấm để dừng' : 'Bấm mic để nói hoặc nhập bằng bàn phím'}
-                </Text>
-                <Text style={styles.voicePrivacyText}>Dịch vụ nhận diện của thiết bị có thể xử lý âm thanh qua mạng. Đội phát triển không nhận hay lưu bản ghi âm.</Text>
+                {speechBusy ? (
+                  <Text accessibilityLiveRegion="polite" style={[styles.micStatusText, isListening && styles.micStatusTextListening]}>
+                    {isStarting ? 'Đang chuẩn bị micro…' : isFinishing ? 'Đang hoàn tất nhận diện…' : 'Đang nghe…'}
+                  </Text>
+                ) : null}
 
                 {errorMessage ? (
                   <Text style={styles.errorText}>{errorMessage}</Text>
@@ -278,15 +315,16 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   ref={inputRef}
                   style={styles.textInput}
                   value={transcript}
+                  editable={!speechBusy}
                   onChangeText={(text) => {
                     setTranscript(text);
                     setTimeOffsetMinutes(0);
                   }}
-                  placeholder="Nội dung lịch hẹn..."
+                  placeholder="Nội dung cuộc họp"
                   placeholderTextColor="#94A3B8"
                   multiline
                 />
-                {hasContent ? (
+                {hasContent && !speechBusy ? (
                   <TouchableOpacity
                     onPress={() => {
                       setTranscript('');
@@ -341,9 +379,9 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               <TouchableOpacity
                 style={[
                   styles.confirmBtn,
-                  !hasContent && styles.confirmBtnDisabled,
+                  !canConfirm && styles.confirmBtnDisabled,
                 ]}
-                disabled={!hasContent}
+                disabled={!canConfirm}
                 onPress={handleConfirm}
                 activeOpacity={0.85}
               >
@@ -434,33 +472,11 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     fontWeight: '600',
   },
-  voicePrivacyText: { fontSize: 12, lineHeight: 17, color: '#64748B', textAlign: 'center', marginTop: 6, maxWidth: 340 },
   errorText: {
     fontSize: 12,
     color: '#DC2626',
     marginTop: 4,
     textAlign: 'center',
-  },
-  dictationGuideBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#EFF6FF',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  dictationGuideText: {
-    flex: 1,
-    fontSize: 12.5,
-    color: '#1E40AF',
-    lineHeight: 18,
-  },
-  dictationGuideBold: {
-    fontWeight: '700',
   },
   inputContainer: {
     flexDirection: 'row',

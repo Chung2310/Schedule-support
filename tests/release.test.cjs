@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { DatabaseSync } = require('node:sqlite');
 const { createLoader } = require('./load-typescript.cjs');
+const { createAppState } = require('./speech-app-state.cjs');
 
 const baseLoader = createLoader();
 const settings = baseLoader('src/types/settings.ts').DEFAULT_SETTINGS;
@@ -23,7 +24,14 @@ function notificationHarness(platform = 'ios', initialMeetings = [meeting()]) {
   const pending = new Map();
   const presented = new Map();
   const listeners = [];
-  const state = { granted: true, lastResponse: null, failRead: false };
+  const channels = new Map();
+  const prepared = [];
+  const state = { granted: true, lastResponse: null, failRead: false, voiceAvailable: false, voiceScheduleFails: false, onPrepare: null, handler: null, elapsed: 0 };
+  const appState = { currentState: 'active' };
+  class HarnessDate extends FixedDate {
+    constructor(...args) { super(...(args.length ? args : [now + state.elapsed])); }
+    static now() { return now + state.elapsed; }
+  }
   const platformApi = { OS: platform, select: (values) => values[platform] ?? values.default };
   const parse = createLoader({
     expo: {},
@@ -35,13 +43,14 @@ function notificationHarness(platform = 'ios', initialMeetings = [meeting()]) {
     SchedulableTriggerInputTypes: { DATE: 'date' },
     IosAuthorizationStatus: { PROVISIONAL: 3 },
     AndroidImportance: { HIGH: 4 },
-    setNotificationHandler() {},
+    setNotificationHandler(handler) { state.handler = handler; },
     getPermissionsAsync: async () => ({ granted: state.granted, canAskAgain: false }),
     requestPermissionsAsync: async () => { throw new Error('Must not request denied permissions again'); },
-    setNotificationChannelAsync: async () => {},
+    setNotificationChannelAsync: async (id, options) => { channels.set(id, options); },
     setNotificationCategoryAsync: async () => {},
     getAllScheduledNotificationsAsync: async () => [...pending.values()],
     scheduleNotificationAsync: async (request) => {
+      if (platform === 'android') assert.ok(channels.has(request.trigger.channelId), 'Create sound channel before scheduling');
       const nativeTrigger = parse(request.trigger);
       if (request.trigger !== null && request.trigger.type === 'date') assert.equal(nativeTrigger.type, 'date');
       const identifier = request.identifier ?? 'instant';
@@ -63,12 +72,158 @@ function notificationHarness(platform = 'ios', initialMeetings = [meeting()]) {
   function restart() {
     return createLoader({
       'expo-notifications': notifications,
-      'react-native': { Platform: platformApi, AppState: { currentState: 'active' } },
+      'react-native': { Platform: platformApi, AppState: appState },
       './storage': { StorageService: storage },
       './speechService': { SpeechService: { stop: async () => {}, speakVoiceReminder: async () => {}, triggerAlarmHaptics: async () => {} } },
-    }, { Date: FixedDate })('src/services/alarmManager.ts').AlarmManager;
+      './meetingVoice': { MeetingVoice: {
+        prepare: async (meeting, settings) => {
+          prepared.push({ meeting, settings });
+          state.onPrepare?.();
+          if (!state.voiceAvailable) return null;
+          const key = `mv_${meeting.id}`;
+          channels.set(key, { sound: `content://app.meetingvoice/voice/${key}.wav`, importance: 4 });
+          return { key, sound: `${key}.caf`, channelId: key };
+        },
+        scheduleIOS: async (input) => {
+          if (state.voiceScheduleFails) throw new Error('OS could not replace notification');
+          pending.set(input.identifier, { identifier: input.identifier, content: {
+            title: input.title, subtitle: input.subtitle, body: input.body,
+            sound: input.sound, data: { meetingId: input.meetingId }, categoryIdentifier: 'MEETING_ALARM_ACTIONS',
+          }, trigger: { type: 'date', date: new Date(input.fireAt) } });
+        },
+        prune: async () => {},
+      } },
+    }, { Date: HarnessDate })('src/services/alarmManager.ts').AlarmManager;
   }
-  return { restart, pending, presented, state, listeners, get rows() { return rows; } };
+  return { restart, pending, presented, state, appState, listeners, channels, prepared, updateMeeting: storage.updateMeeting, get rows() { return rows; } };
+}
+
+for (const platform of ['android', 'ios']) {
+  test(`${platform}: editing replaces reminder times and regenerates speech without duplicating a meeting`, async () => {
+    const h = notificationHarness(platform);
+    h.state.voiceAvailable = true;
+    const manager = h.restart();
+    await manager.syncNotifications(settings);
+    const firstBefore = h.pending.get('ceo-meeting-meeting-a-0').trigger.date.getTime();
+    const { applyMeetingEdit, meetingEditFields } = createLoader()('src/utils/meetingEdit.ts');
+    const original = h.rows[0];
+    const edited = applyMeetingEdit(original, { ...meetingEditFields(original), title: 'Cuộc họp đã sửa', date: '18/10/2026', time: '22:30' }, new Date(now));
+    await h.updateMeeting(edited);
+    await manager.cancelAlarm(edited.id);
+    await manager.syncNotifications(settings);
+    assert.equal(h.rows.length, 1);
+    const firstAfter = h.pending.get('ceo-meeting-meeting-a-0');
+    assert.notEqual(firstAfter.trigger.date.getTime(), firstBefore);
+    assert.equal(firstAfter.trigger.date.getTime(), new Date(2026, 9, 18, 22, 15).getTime());
+    assert.ok(firstAfter.content.title.includes('Cuộc họp đã sửa'));
+    assert.equal(h.prepared.at(-1).meeting.voiceText, '22 giờ 30 phút. Cuộc họp đã sửa');
+  });
+}
+
+test('foreground meeting speech is not doubled by notification sound; background sound remains enabled', async () => {
+  const h = notificationHarness();
+  h.restart();
+  const notification = { request: { content: { data: { meetingId: 'meeting-a' } } } };
+  assert.equal((await h.state.handler.handleNotification(notification)).shouldPlaySound, false);
+  h.appState.currentState = 'background';
+  assert.equal((await h.state.handler.handleNotification(notification)).shouldPlaySound, true);
+  h.appState.currentState = 'active';
+  notification.request.content.data = { type: 'DAILY_BRIEFING' };
+  assert.equal((await h.state.handler.handleNotification(notification)).shouldPlaySound, true);
+});
+
+for (const platform of ['android', 'ios']) {
+  test(`${platform}: synthesis finishing after an alarm fires does not replay that alarm`, async () => {
+    const h = notificationHarness(platform);
+    h.state.voiceAvailable = true;
+    h.state.onPrepare = () => {
+      h.state.elapsed = new Date(h.rows[0].firstReminderTime).getTime() - now + 1000;
+      h.pending.delete('ceo-meeting-meeting-a-0');
+    };
+    assert.equal(await h.restart().syncNotifications(settings), true);
+    assert.equal(h.pending.has('ceo-meeting-meeting-a-0'), false);
+    assert.equal(h.pending.has('ceo-meeting-meeting-a-1'), true);
+  });
+
+  test(`${platform}: voice files replace armed chimes and one file serves all repeat reminders`, async () => {
+    const h = notificationHarness(platform);
+    h.state.voiceAvailable = true;
+    h.state.onPrepare = () => {
+      assert.ok(h.pending.size > 1, 'Chime reminders must be armed before synthesis');
+      assert.ok([...h.pending.values()].every(item => item.content.sound === 'meeting_reminder.wav'));
+    };
+    const manager = h.restart();
+    assert.equal(await manager.syncNotifications(settings), true);
+    assert.equal(h.prepared.length, 1);
+    const reminders = [...h.pending.values()].filter(item => item.content.data.meetingId);
+    assert.ok(reminders.length > 1);
+    for (const request of reminders) {
+      if (platform === 'ios') assert.equal(request.content.sound, 'mv_meeting-a.caf');
+      else assert.equal(request.trigger.channelId, 'mv_meeting-a');
+      assert.equal(request.content.categoryIdentifier, 'MEETING_ALARM_ACTIONS');
+    }
+    assert.equal(manager.voiceFallbackMeetingIds.size, 0);
+  });
+
+  test(`${platform}: synthesis unavailable preserves chime reminders and reports fallback`, async () => {
+    const h = notificationHarness(platform);
+    const manager = h.restart();
+    assert.equal(await manager.syncNotifications(settings), true);
+    assert.equal(manager.voiceFallbackMeetingIds.has('meeting-a'), true);
+    assert.ok([...h.pending.values()].every(item => item.content.sound === 'meeting_reminder.wav'));
+  });
+
+  test(`${platform}: acknowledged voice meetings have no remaining reminders`, async () => {
+    const h = notificationHarness(platform);
+    h.state.voiceAvailable = true;
+    const manager = h.restart();
+    await manager.syncNotifications(settings);
+    await manager.acknowledgeAndDismiss('meeting-a');
+    assert.equal([...h.pending.values()].some(item => item.content.data.meetingId === 'meeting-a'), false);
+  });
+}
+
+test('iOS scheduling failure leaves the already scheduled chime intact', async () => {
+  const h = notificationHarness('ios');
+  h.state.voiceAvailable = true;
+  h.state.voiceScheduleFails = true;
+  const manager = h.restart();
+  assert.equal(await manager.syncNotifications(settings), true);
+  assert.ok([...h.pending.values()].every(item => item.content.sound === 'meeting_reminder.wav'));
+  assert.equal(manager.voiceFallbackMeetingIds.has('meeting-a'), true);
+});
+
+test('bundled chime is a playable PCM WAV registered with the Expo plugin', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const config = require('../app.json');
+  const plugin = config.expo.plugins.find(item => Array.isArray(item) && item[0] === 'expo-notifications');
+  assert.ok(plugin[1].sounds.includes('./assets/meeting_reminder.wav'));
+  const sound = fs.readFileSync(path.join(__dirname, '../assets/meeting_reminder.wav'));
+  assert.equal(sound.toString('ascii', 0, 4), 'RIFF');
+  assert.equal(sound.toString('ascii', 8, 12), 'WAVE');
+  assert.equal(sound.readUInt16LE(20), 1);
+  assert.equal(sound.readUInt16LE(34), 16);
+  assert.equal(sound.readUInt32LE(40), sound.length - 44);
+  assert.ok(sound.subarray(44).some(byte => byte !== 0));
+});
+
+for (const platform of ['android', 'ios']) {
+  test(`${platform}: scheduled and instant notifications use the bundled chime`, async () => {
+    const harness = notificationHarness(platform);
+    const manager = harness.restart();
+    await manager.syncNotifications(settings);
+    await manager.sendInstantDailyBriefingNotification(harness.rows);
+    for (const request of harness.pending.values()) {
+      assert.equal(request.content.sound, 'meeting_reminder.wav');
+      if (platform === 'android') {
+        assert.notEqual(request.trigger.channelId, 'ceo_meeting_alarms');
+        const channel = harness.channels.get(request.trigger.channelId);
+        assert.equal(channel.sound, request.content.sound);
+        assert.equal(channel.importance, 4);
+      }
+    }
+  });
 }
 
 for (const platform of ['ios', 'android']) {
@@ -215,7 +370,7 @@ test('closing voice input during the permission prompt prevents a late microphon
     requestPermissionsAsync: () => new Promise((resolve) => { resolvePermission = resolve; }),
     addListener: () => ({ remove() {} }), start: async () => { starts++; }, stop: async () => {},
   };
-  const service = createLoader({ 'react-native': { Platform: { OS: 'ios' } }, 'expo-speech-recognition': { ExpoSpeechRecognitionModule: native } })('src/services/sttService.ts').STTService;
+  const service = createLoader({ 'react-native': { AppState: createAppState(), Platform: { OS: 'ios' } }, 'expo-speech-recognition': { ExpoSpeechRecognitionModule: native } })('src/services/sttService.ts').STTService;
   const pending = service.startListening({});
   service.stopListening();
   resolvePermission({ granted: true });
@@ -236,7 +391,7 @@ test('closing voice input during native startup stops it and ignores late events
     start: () => { actions.push('start'); enteredStart(); return new Promise((resolve) => { completeStart = resolve; }); },
     stop: async () => { actions.push('stop'); },
   };
-  const service = createLoader({ 'react-native': { Platform: { OS: 'ios' } }, 'expo-speech-recognition': { ExpoSpeechRecognitionModule: native } })('src/services/sttService.ts').STTService;
+  const service = createLoader({ 'react-native': { AppState: createAppState(), Platform: { OS: 'ios' } }, 'expo-speech-recognition': { ExpoSpeechRecognitionModule: native } })('src/services/sttService.ts').STTService;
   const pending = service.startListening({ onStart() { callbacks++; } });
   await started;
   service.stopListening();

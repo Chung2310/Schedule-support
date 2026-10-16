@@ -6,10 +6,14 @@ import { SpeechService } from './speechService';
 import { StorageService } from './storage';
 import { isSameDay } from '../utils/dateUtils';
 import { buildReminderPlan } from '../utils/reminderPlan';
+import { MeetingVoice } from './meetingVoice';
+import { cleanReminderText } from '../utils/reminderText';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
+  handleNotification: async (notification) => ({
+    // Foreground meetings are read by SpeechService with the alarm overlay.
+    // Avoid playing the generated notification voice over that same speech.
+    shouldPlaySound: !(AppState.currentState === 'active' && typeof notification.request.content.data?.meetingId === 'string'),
     shouldSetBadge: false,
     shouldShowBanner: true,
     shouldShowList: true,
@@ -17,7 +21,9 @@ Notifications.setNotificationHandler({
 });
 
 const NOTIFICATION_CATEGORY_ID = 'MEETING_ALARM_ACTIONS';
-const NOTIFICATION_CHANNEL_ID = 'ceo_meeting_alarms';
+// A new sound needs a new channel: Android keeps an existing channel's sound.
+const NOTIFICATION_CHANNEL_ID = 'ceo_meeting_alarms_chime_v1';
+const NOTIFICATION_SOUND = 'meeting_reminder.wav';
 const DAILY_BRIEFING_ID = 'ceo_daily_schedule_briefing';
 const DISMISS_ACTION = 'DISMISS_ACTION';
 
@@ -57,11 +63,13 @@ export function buildTodayScheduleBriefing(todayMeetings: Meeting[], date = new 
 }
 
 class AlarmManagerService {
+  readonly voiceFallbackMeetingIds = new Set<string>();
   private activeReminders = new Map<string, ReturnType<typeof setTimeout>>();
   private alarmSessions = new Map<string, symbol>();
   private acknowledging = new Set<string>();
   private callbacks: AlarmCallbacks | null = null;
   private initialization: Promise<void> | null = null;
+  private channelInitialization: Promise<unknown> | null = null;
   private notificationQueue: Promise<unknown> = Promise.resolve();
   private handledResponses = new Set<string>();
   private responseSubscription: ReturnType<typeof Notifications.addNotificationResponseReceivedListener> | null = null;
@@ -86,14 +94,7 @@ class AlarmManagerService {
       });
     }
 
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
-        name: 'Nhắc lịch hẹn',
-        importance: Notifications.AndroidImportance.HIGH,
-        vibrationPattern: [0, 500, 250, 500],
-        sound: 'default',
-      });
-    }
+    await this.ensureNotificationChannel();
     await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY_ID, [{
       identifier: DISMISS_ACTION,
       buttonTitle: 'Đã nhớ',
@@ -141,6 +142,22 @@ class AlarmManagerService {
     return task;
   }
 
+  private async ensureNotificationChannel(): Promise<void> {
+    if (Platform.OS !== 'android') return;
+    if (!this.channelInitialization) {
+      this.channelInitialization = Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
+        name: 'Nhắc lịch hẹn',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 500, 250, 500],
+        sound: NOTIFICATION_SOUND,
+      }).catch((error) => {
+        this.channelInitialization = null;
+        throw error;
+      });
+    }
+    await this.channelInitialization;
+  }
+
   calculateFirstReminder(meetingTime: Date, advanceNoticeMinutes: number): Date {
     return new Date(meetingTime.getTime() - advanceNoticeMinutes * 60_000);
   }
@@ -149,7 +166,9 @@ class AlarmManagerService {
   async syncNotifications(settings: AppSettings): Promise<boolean> {
     if (Platform.OS === 'web') return true;
     return this.enqueue(async () => {
+      this.voiceFallbackMeetingIds.clear();
       const meetings = await StorageService.getMeetings();
+      await this.ensureNotificationChannel();
       const pending = await Notifications.getAllScheduledNotificationsAsync();
       const owned = pending.filter((request) =>
         typeof request.content.data?.meetingId === 'string' || request.identifier === DAILY_BRIEFING_ID
@@ -177,7 +196,7 @@ class AlarmManagerService {
             body: `${meeting.voiceText}\nChạm để xem lịch hoặc bấm “Đã nhớ” để dừng nhắc.`,
             categoryIdentifier: NOTIFICATION_CATEGORY_ID,
             data: { meetingId: meeting.id },
-            sound: true,
+            sound: NOTIFICATION_SOUND,
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DATE,
@@ -199,7 +218,7 @@ class AlarmManagerService {
           subtitle: briefing.subtitle,
           body: briefing.body,
           data: { type: 'DAILY_BRIEFING' },
-          sound: true,
+          sound: NOTIFICATION_SOUND,
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,
@@ -207,6 +226,51 @@ class AlarmManagerService {
           ...(Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : {}),
         },
       });
+
+      // Arm chime reminders first. Generating audio may be slow or fail; never
+      // leave a meeting without an OS reminder while waiting for synthesis.
+      const keys: string[] = [];
+      for (const meeting of new Map(plan.map(item => [item.meeting.id, item.meeting])).values()) {
+        const reminders = plan.filter(item => item.meeting.id === meeting.id);
+        if (!reminders.some(item => item.date.getTime() > Date.now())) continue;
+        const voice = await MeetingVoice.prepare(meeting, settings);
+        if (!voice) {
+          this.voiceFallbackMeetingIds.add(meeting.id);
+          continue;
+        }
+        keys.push(voice.key);
+        for (const reminder of reminders) {
+          // Do not replay a reminder that fired while the file was being made.
+          if (reminder.date.getTime() <= Date.now()) continue;
+          const date = new Date(meeting.meetingTime);
+          const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+          const content = {
+            title: `⏰ ${reminder.repeatIndex > 0 ? '[Nhắc lại] ' : ''}[${time}] ${meeting.title}`,
+            subtitle: reminder.repeatIndex > 0 ? `Lần nhắc lại thứ ${reminder.repeatIndex}` : `Báo trước ${meeting.advanceNoticeMinutes} phút`,
+            body: `${meeting.voiceText}\nChạm để xem lịch hoặc bấm “Đã nhớ” để dừng nhắc.`,
+            categoryIdentifier: NOTIFICATION_CATEGORY_ID,
+            data: { meetingId: meeting.id, voiceKey: voice.key },
+          };
+          try {
+            if (Platform.OS === 'ios') {
+              await MeetingVoice.scheduleIOS({ ...content, identifier: reminder.identifier,
+                sound: voice.sound, meetingId: meeting.id, fireAt: reminder.date.getTime() });
+            } else {
+              await Notifications.scheduleNotificationAsync({
+                identifier: reminder.identifier,
+                // Android 8+ reads the runtime file from the native channel.
+                // The bundled chime is only for the legacy content sound field.
+                content: { ...content, sound: NOTIFICATION_SOUND },
+                trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE,
+                  date: reminder.date, channelId: voice.channelId },
+              });
+            }
+          } catch {
+            this.voiceFallbackMeetingIds.add(meeting.id);
+          }
+        }
+      }
+      await MeetingVoice.prune(keys);
       return true;
     }).catch((error) => {
       console.warn('Could not schedule reminders:', error);
@@ -221,6 +285,7 @@ class AlarmManagerService {
       meetings.filter((meeting) => isSameDay(new Date(meeting.meetingTime), now)), now
     );
     try {
+      await this.ensureNotificationChannel();
       const permission = await Notifications.getPermissionsAsync();
       if (!permission.granted && permission.ios?.status !== Notifications.IosAuthorizationStatus.PROVISIONAL) return false;
       await Notifications.scheduleNotificationAsync({
@@ -229,7 +294,7 @@ class AlarmManagerService {
           subtitle: briefing.subtitle,
           body: briefing.body,
           data: { type: 'DAILY_BRIEFING' },
-          sound: true,
+          sound: NOTIFICATION_SOUND,
         },
         trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
       });
@@ -260,7 +325,11 @@ class AlarmManagerService {
     try {
       const current = (await StorageService.getMeetings()).find((item) => item.id === meeting.id);
       if (!isCurrent() || !current || (current.status !== 'UPCOMING' && current.status !== 'REMINDING')) return;
-      await SpeechService.speakVoiceReminder(current.voiceText, { pitch: settings.speechPitch, rate: settings.speechRate });
+      await SpeechService.speakVoiceReminder(cleanReminderText(current.voiceText), {
+        pitch: settings.speechPitch,
+        rate: settings.speechRate,
+        voice: settings.speechVoice,
+      });
       if (!isCurrent()) return;
       if (settings.hapticEnabled) await SpeechService.triggerAlarmHaptics();
       if (!isCurrent()) return;

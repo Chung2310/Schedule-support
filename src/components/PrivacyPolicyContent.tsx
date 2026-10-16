@@ -1,9 +1,8 @@
 import React from 'react';
 import { Alert, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import policy from '../content/privacy-policy.json';
+import { legalDocuments, LegalDocumentId } from '../content/legal-documents';
 
-const policyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL?.trim();
 const supportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL?.trim();
 
 async function openPublicUrl(url: string) {
@@ -14,7 +13,8 @@ async function openPublicUrl(url: string) {
   }
 }
 
-export function PrivacyPolicyContent({ onBack }: { onBack: () => void }) {
+export function PrivacyPolicyContent({ onBack, document = 'privacy' }: { onBack: () => void; document?: LegalDocumentId }) {
+  const { content: policy, url: policyUrl } = legalDocuments[document];
   return (
     <>
       <View style={styles.header}>
@@ -36,7 +36,7 @@ export function PrivacyPolicyContent({ onBack }: { onBack: () => void }) {
         ))}
         {policyUrl && /^https:\/\//i.test(policyUrl) ? (
           <TouchableOpacity accessibilityRole="link" onPress={() => void openPublicUrl(policyUrl)} style={styles.linkButton}>
-            <Text style={styles.link}>Mở chính sách trên web</Text>
+            <Text style={styles.link}>Mở trên web</Text>
           </TouchableOpacity>
         ) : null}
         {supportUrl && /^(https:\/\/|mailto:)/i.test(supportUrl) ? (

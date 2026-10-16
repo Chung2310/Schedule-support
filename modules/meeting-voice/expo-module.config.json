@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["MeetingVoiceModule"] },
+  "android": { "modules": ["expo.modules.meetingvoice.MeetingVoiceModule"] }
+}

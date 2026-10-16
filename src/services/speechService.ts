@@ -16,8 +16,11 @@ export const SpeechService = {
     options?: {
       pitch?: number;
       rate?: number;
+      voice?: string;
       onDone?: () => void;
       onStart?: () => void;
+      onStopped?: () => void;
+      onError?: (error: Error) => void;
     }
   ): Promise<void> {
     const session = ++speechSession;
@@ -38,6 +41,7 @@ export const SpeechService = {
 
       Speech.speak(cleanText, {
         language: 'vi-VN',
+        voice: options?.voice,
         pitch: options?.pitch ?? 1.0,
         rate: options?.rate ?? 0.90, // Tốc độ 0.90 giúp giọng đọc tiếng Việt rõ từng từ, không bị dính chữ
         onDone: () => {
@@ -48,16 +52,21 @@ export const SpeechService = {
         onStopped: () => {
           if (session !== speechSession) return;
           this.isSpeaking = false;
+          options?.onStopped?.();
         },
         onError: (err) => {
           if (session !== speechSession) return;
           console.warn('Speech error:', err);
           this.isSpeaking = false;
+          options?.onError?.(err);
         },
       });
     } catch (e) {
       console.warn('Speech.speak failed', e);
-      if (session === speechSession) this.isSpeaking = false;
+      if (session === speechSession) {
+        this.isSpeaking = false;
+        options?.onError?.(e instanceof Error ? e : new Error(String(e)));
+      }
     }
   },
 

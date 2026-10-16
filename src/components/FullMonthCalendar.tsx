@@ -25,6 +25,7 @@ interface FullMonthCalendarProps {
   onMonthChange: (date: Date) => void;
   onSimulateAlarm: (meeting: Meeting) => void;
   onDeleteMeeting: (id: string) => void;
+  onEditMeeting: (meeting: Meeting) => void;
   onSendTestNotification?: () => Promise<boolean>;
 }
 
@@ -37,6 +38,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
   onMonthChange,
   onSimulateAlarm,
   onDeleteMeeting,
+  onEditMeeting,
   onSendTestNotification,
 }) => {
   const currentMonthDate = selectedDate;
@@ -311,6 +313,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                     meeting={item}
                     onSimulateAlarm={onSimulateAlarm}
                     onDelete={onDeleteMeeting}
+                    onEdit={onEditMeeting}
                   />
                 ))}
               </View>
@@ -334,6 +337,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                     meeting={item}
                     onSimulateAlarm={onSimulateAlarm}
                     onDelete={onDeleteMeeting}
+                    onEdit={onEditMeeting}
                   />
                 ))}
               </View>
@@ -357,6 +361,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                     meeting={item}
                     onSimulateAlarm={onSimulateAlarm}
                     onDelete={onDeleteMeeting}
+                    onEdit={onEditMeeting}
                   />
                 ))}
               </View>
@@ -377,6 +382,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                 meeting={item}
                 onSimulateAlarm={onSimulateAlarm}
                 onDelete={onDeleteMeeting}
+                onEdit={onEditMeeting}
                 showDateBadge={true}
               />
             ))}

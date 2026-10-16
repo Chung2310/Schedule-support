@@ -17,6 +17,15 @@
         "simulator": true
       }
     },
+    "preview-device": {
+      "extends": "preview",
+      "ios": {
+        "simulator": false
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
       "node": "22.13.0",
       "autoIncrement": true,

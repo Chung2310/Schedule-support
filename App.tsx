@@ -26,6 +26,8 @@ import { DayHourlyTimeline } from './src/components/DayHourlyTimeline';
 import { AlarmOverlay } from './src/components/AlarmOverlay';
 import { VoiceInputModal } from './src/components/VoiceInputModal';
 import { SettingsModal } from './src/components/SettingsModal';
+import { EditMeetingModal } from './src/components/EditMeetingModal';
+import { applyMeetingEdit, MeetingEditFields } from './src/utils/meetingEdit';
 
 export default function App() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -43,6 +45,7 @@ export default function App() {
   // Modals state
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
 
   // Active alarm for iPhone-style full overlay
   const [activeAlarmMeeting, setActiveAlarmMeeting] = useState<Meeting | null>(null);
@@ -183,10 +186,39 @@ export default function App() {
     const notificationsScheduled = await AlarmManager.syncNotifications(settings);
     if (!notificationsScheduled && Platform.OS !== 'web') {
       Alert.alert('Đã lưu lịch hẹn', 'Chưa thể bật thông báo nhắc lịch. Hãy kiểm tra quyền thông báo của ứng dụng trong Cài đặt thiết bị.');
+    } else if (AlarmManager.voiceFallbackMeetingIds.has(newMeeting.id)) {
+      Alert.alert('Đã lưu lịch hẹn', 'Lịch này sẽ dùng chuông báo vì chưa tạo được giọng đọc. Hãy dùng bản cài mới và kiểm tra giọng tiếng Việt đã tải trên thiết bị.');
     }
   };
 
   // Tắt báo thức (Đã nhớ)
+  const handleSaveEditedMeeting = async (fields: MeetingEditFields) => {
+    if (!editingMeeting) return;
+    let edited: Meeting;
+    let updated: Meeting[];
+    try {
+      const latest = (await StorageService.getMeetings()).find(item => item.id === editingMeeting.id);
+      if (!latest) throw new Error('Cuộc họp này không còn tồn tại.');
+      edited = applyMeetingEdit(latest, fields);
+      updated = await StorageService.updateMeeting(edited);
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Chưa lưu được thay đổi. Vui lòng thử lại.');
+    }
+    setMeetings(updated);
+    setEditingMeeting(null);
+    setSelectedDate(new Date(edited.meetingTime));
+    setViewMode('DAY');
+    setActiveAlarmMeeting(previous => previous?.id === edited.id ? null : previous);
+    await AlarmManager.cancelAlarm(edited.id).catch(error => console.warn('Could not cancel old meeting reminders:', error));
+    const scheduled = await AlarmManager.syncNotifications(settings);
+    AlarmManager.resumeForegroundReminders(updated, settings);
+    if (!scheduled && Platform.OS !== 'web') {
+      Alert.alert('Đã lưu thay đổi', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
+    } else if (AlarmManager.voiceFallbackMeetingIds.has(edited.id)) {
+      Alert.alert('Đã lưu thay đổi', 'Lịch này sẽ dùng chuông báo vì chưa tạo được giọng đọc tiếng Việt trên thiết bị.');
+    }
+  };
+
   const handleDismissAlarm = async () => {
     if (!activeAlarmMeeting) return;
     const meetingId = activeAlarmMeeting.id;
@@ -289,6 +321,7 @@ export default function App() {
             }}
             onSimulateAlarm={handleSimulateAlarm}
             onDeleteMeeting={handleDeleteMeeting}
+            onEditMeeting={setEditingMeeting}
             onSendTestNotification={() =>
               AlarmManager.sendInstantDailyBriefingNotification(meetings)
             }
@@ -309,6 +342,7 @@ export default function App() {
               meetings={selectedDayMeetings}
               onSimulateAlarm={handleSimulateAlarm}
               onDeleteMeeting={handleDeleteMeeting}
+              onEditMeeting={setEditingMeeting}
               onSlotPress={handleSlotPress}
               onAddMeeting={handleOpenVoiceForSelectedDate}
               style={styles.centerTimeline}
@@ -348,6 +382,13 @@ export default function App() {
       /> : null}
 
       {/* Modal cài đặt */}
+      {editingMeeting ? <EditMeetingModal
+        key={editingMeeting.id}
+        meeting={editingMeeting}
+        onClose={() => setEditingMeeting(null)}
+        onSave={handleSaveEditedMeeting}
+      /> : null}
+
       {isSettingsModalOpen ? <SettingsModal
         visible={isSettingsModalOpen}
         settings={settings}
