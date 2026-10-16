@@ -17,7 +17,7 @@
     "android": {
       "package": "com.company.ceovoicecalendar",
       "adaptiveIcon": {
-          "backgroundColor": "#0A2540",
+        "backgroundColor": "#0A2540",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -43,6 +43,11 @@
       ],
       "expo-sqlite",
       "expo-speech-recognition"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8cbefa70-33c4-4e3e-bb32-b532de127cc3"
+      }
+    }
   }
 }
