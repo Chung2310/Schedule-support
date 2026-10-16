@@ -28,9 +28,12 @@
     },
     "production": {
       "node": "22.13.0",
+      "distribution": "store",
       "autoIncrement": true,
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "buildConfiguration": "Release",
+        "credentialsSource": "remote"
       }
     }
   },

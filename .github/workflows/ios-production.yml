@@ -1,4 +1,4 @@
-name: App CI and iOS Release
+name: App CI and Production iOS IPA
 
 on:
   push:
@@ -55,13 +55,22 @@ jobs:
       - name: Check generated iOS privacy declarations
         run: npm run ios:check
 
-  build-and-submit:
-    name: Build signed iOS app and upload to App Store Connect
+  build-ios:
+    name: Build production IPA on GitHub macOS
     if: ${{ github.ref == 'refs/heads/production' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: macos-26
+    timeout-minutes: 90
+    concurrency:
+      group: ios-production-build
+      cancel-in-progress: false
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
+      EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
-      - name: Check out source
+      - name: Check out production source
         uses: actions/checkout@v4
 
       - name: Set up Node.js 22
@@ -73,60 +82,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check release configuration
+      - name: Check production build configuration
         run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const app = JSON.parse(fs.readFileSync('app.json', 'utf8')).expo;
-          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
-          const bundleIdentifier = app?.ios?.bundleIdentifier;
-          const projectId = app?.extra?.eas?.projectId;
-          const appStoreId = process.env.ASC_APP_ID?.trim();
-          const expoToken = process.env.EXPO_TOKEN?.trim();
+          node scripts/build-ios.cjs --check
+          npm run ios:check
 
-          if (!bundleIdentifier) {
-            throw new Error('Set ios.bundleIdentifier in app.json to the app ID registered with Apple.');
-          }
-          if (!projectId) {
-            throw new Error('Link this app to EAS and set expo.extra.eas.projectId in app.json.');
-          }
-          if (!/^\d+$/.test(appStoreId || '')) {
-            throw new Error('Add ASC_APP_ID to GitHub Actions secrets (the numeric App Store Connect Apple ID).');
-          }
-          if (!expoToken) {
-            throw new Error('Add EXPO_TOKEN to GitHub Actions secrets.');
-          }
+      - name: Verify Expo project access
+        run: npx --yes eas-cli@latest project:info
 
-          eas.submit ??= {};
-          eas.submit.production ??= {};
-          eas.submit.production.ios ??= {};
-          eas.submit.production.ios.ascAppId = appStoreId;
-          eas.build.production.env ??= {};
-          for (const key of ['EXPO_PUBLIC_PRIVACY_POLICY_URL', 'EXPO_PUBLIC_SUPPORT_URL']) {
-            const value = process.env[key]?.trim();
-            if (!value) continue;
-            const allowed = key === 'EXPO_PUBLIC_SUPPORT_URL' ? /^(https:\/\/|mailto:)/i : /^https:\/\//i;
-            if (!allowed.test(value)) throw new Error(`Invalid public URL: ${key}`);
-            eas.build.production.env[key] = value;
-          }
-          fs.writeFileSync('eas.json', `${JSON.stringify(eas, null, 2)}\n`);
-          NODE
-        env:
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
-          EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
-
-      - name: Verify Expo organization
+      - name: Check macOS build tools
         run: |
-          node -e "const { expo } = require('./app.json'); if (expo.owner !== 'igen-technology') throw new Error('expo.owner must be igen-technology for production releases.');"
-          npx eas-cli@latest project:info
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          node --version
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          pod --version
+          fastlane --version
+          python3 --version
 
-      - name: Build and submit with EAS
-        run: npx eas-cli@latest build --platform ios --profile production --non-interactive --wait --auto-submit
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
-          EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
+      - name: Build signed production IPA locally
+        run: npm run build:ios
+
+      - name: Validate signed IPA and write build summary
+        run: python3 scripts/check-ios-artifact.py "$RUNNER_TEMP/ios-artifacts/schedule-support.ipa"
+
+      - name: Save validated IPA and build information
+        uses: actions/upload-artifact@v4
+        with:
+          name: schedule-support-ios-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/ios-artifacts/schedule-support.ipa
+            ${{ runner.temp }}/ios-artifacts/build-info.json
+          if-no-files-found: error
+          retention-days: 7
