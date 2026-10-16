@@ -18,6 +18,9 @@ import * as Haptics from 'expo-haptics';
 import { STTService } from '../services/sttService';
 import { parseVietnameseVoiceMeeting } from '../services/nlpParser';
 import { AppSettings } from '../types/settings';
+import type { Meeting } from '../types/meeting';
+import { voiceEditCommand, voiceEditFields } from '../services/voiceMeetingCommand';
+import { applyMeetingEdit, type MeetingEditFields } from '../utils/meetingEdit';
 
 interface VoiceInputModalProps {
   visible: boolean;
@@ -32,6 +35,8 @@ interface VoiceInputModalProps {
   initialText?: string;
   selectedDate: Date;
   settings: AppSettings;
+  meetings: Meeting[];
+  onEditMeeting: (fields: MeetingEditFields, meeting: Meeting) => Promise<void>;
 }
 
 export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
@@ -41,12 +46,30 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   initialText = '',
   selectedDate,
   settings,
+  meetings,
+  onEditMeeting,
 }) => {
   const [transcript, setTranscript] = useState(initialText);
   const [isListening, setIsListening] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [chosenMeeting, setChosenMeeting] = useState<{ transcript: string; id: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const commandNow = useMemo(() => { void transcript; return new Date(); }, [transcript]);
+  const editCommand = useMemo(() => voiceEditCommand(transcript, meetings, commandNow), [transcript, meetings, commandNow]);
+  const editTarget = editCommand?.candidates.length === 1 ? editCommand.candidates[0]
+    : chosenMeeting?.transcript === transcript ? editCommand?.candidates.find(m => m.id === chosenMeeting.id) : undefined;
+  const editPreview = useMemo(() => {
+    if (!editCommand || !editTarget) return null;
+    try {
+      const fields = voiceEditFields(editCommand, editTarget, commandNow);
+      return { fields, meeting: applyMeetingEdit(editTarget, fields, commandNow), error: null };
+    } catch (error) {
+      return { fields: null, meeting: null, error: error instanceof Error ? error.message : 'Chưa hiểu yêu cầu sửa lịch.' };
+    }
+  }, [editCommand, editTarget, commandNow]);
 
   // Điều chỉnh thời gian nếu muốn
   const [timeOffsetMinutes, setTimeOffsetMinutes] = useState(0);
@@ -196,6 +219,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   };
 
   const handleClose = () => {
+    if (savingRef.current) return;
     stopListening();
     onClose();
   };
@@ -208,8 +232,18 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   };
 
   // Xác nhận lưu lịch
-  const handleConfirm = () => {
-    if (!transcript.trim() || isStarting || isListening || isFinishing) return;
+  const handleConfirm = async () => {
+    if (!transcript.trim() || isStarting || isListening || isFinishing || savingRef.current) return;
+    if (editCommand) {
+      if (!editPreview?.fields || !editTarget) return;
+      savingRef.current = true;
+      setSaving(true);
+      setErrorMessage(null);
+      try { await onEditMeeting(editPreview.fields, editTarget); }
+      catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Chưa lưu được thay đổi.'); }
+      finally { savingRef.current = false; setSaving(false); }
+      return;
+    }
 
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -219,7 +253,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
     const voiceSummary = `${effectiveMeetingDate.getHours()} giờ${
       effectiveMeetingDate.getMinutes() > 0 ? ` ${effectiveMeetingDate.getMinutes()} phút` : ''
-    }. Họp: ${effectiveTitle}`;
+    }. ${effectiveTitle}`;
 
     onSaveMeeting({
       title: effectiveTitle,
@@ -243,7 +277,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   const hasContent = transcript.trim().length > 0;
   const speechBusy = isStarting || isListening || isFinishing;
-  const canConfirm = hasContent && !speechBusy;
+  const canConfirm = hasContent && !speechBusy && !saving && (!editCommand || !!editPreview?.meeting);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
@@ -266,7 +300,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
               {/* Tiêu đề & Nút đóng */}
               <View style={styles.headerRow}>
-                <Text style={styles.headerTitle}>Thêm Lịch Hẹn</Text>
+                <Text style={styles.headerTitle}>{editCommand ? 'Sửa Lịch Hẹn' : 'Thêm Lịch Hẹn'}</Text>
                 <TouchableOpacity
                   onPress={handleClose}
                   style={styles.closeBtn}
@@ -286,7 +320,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     isListening && styles.micButtonListening,
                   ]}
                   onPress={isListening ? finishListening : startListening}
-                  disabled={isStarting || isFinishing}
+                  disabled={isStarting || isFinishing || saving}
                   accessibilityRole="button"
                   accessibilityLabel={isListening ? 'Dừng nhận diện giọng nói' : 'Bắt đầu nhận diện giọng nói'}
                   activeOpacity={0.8}
@@ -315,7 +349,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   ref={inputRef}
                   style={styles.textInput}
                   value={transcript}
-                  editable={!speechBusy}
+                  editable={!speechBusy && !saving}
                   onChangeText={(text) => {
                     setTranscript(text);
                     setTimeOffsetMinutes(0);
@@ -324,7 +358,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   placeholderTextColor="#94A3B8"
                   multiline
                 />
-                {hasContent && !speechBusy ? (
+                {hasContent && !speechBusy && !saving ? (
                   <TouchableOpacity
                     onPress={() => {
                       setTranscript('');
@@ -338,7 +372,27 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               </View>
 
               {/* Thông tin bóc tách được (Hiện phẳng, tối giản) */}
-              {hasContent ? (
+              {editCommand && hasContent ? (
+                <View style={styles.parsedInfoCard}>
+                  {editCommand.error ? <Text style={styles.errorText}>{editCommand.error}</Text> : !editCommand.candidates.length ? <Text style={styles.errorText}>Không tìm thấy cuộc họp phù hợp. Hãy nói rõ tên hoặc giờ họp cần sửa.</Text> : null}
+                  {editCommand.candidates.length > 1 ? <Text style={styles.infoLabel}>Chọn lịch:</Text> : null}
+                  {editCommand.candidates.map(meeting => (
+                    <TouchableOpacity key={meeting.id} disabled={speechBusy || saving}
+                      accessibilityRole="button" accessibilityState={{ selected: editTarget?.id === meeting.id }}
+                      style={{ paddingVertical: 12 }} onPress={() => setChosenMeeting({ transcript, id: meeting.id })}>
+                      <Text style={styles.titleBoldText}>{editTarget?.id === meeting.id ? '✓ ' : ''}{meeting.title}</Text>
+                      <Text style={styles.dateSubText}>{new Date(meeting.meetingTime).toLocaleString('vi-VN')}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {editPreview?.error ? <Text style={styles.errorText}>{editPreview.error}</Text> : null}
+                  {editPreview?.meeting ? <View>
+                    <Text style={styles.timeBoldText}>Sau khi sửa</Text>
+                    <Text style={styles.titleBoldText}>{editPreview.meeting.title}</Text>
+                    <Text style={styles.dateSubText}>{new Date(editPreview.meeting.meetingTime).toLocaleString('vi-VN')}</Text>
+                    <Text style={styles.dateSubText}>Báo trước {editPreview.meeting.advanceNoticeMinutes} phút · Nhắc lại {editPreview.meeting.repeatIntervalMinutes} phút</Text>
+                  </View> : null}
+                </View>
+              ) : hasContent ? (
                 <View style={styles.parsedInfoCard}>
                   {/* Dòng 1: Thời gian */}
                   <View style={styles.infoRow}>
@@ -386,7 +440,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                 activeOpacity={0.85}
               >
                 <Text style={styles.confirmBtnText}>
-                  {hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
+                  {saving ? 'Đang lưu…' : editCommand ? 'Lưu thay đổi' : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
                 </Text>
               </TouchableOpacity>
               </ScrollView>

@@ -192,13 +192,17 @@ export default function App() {
   };
 
   // Tắt báo thức (Đã nhớ)
-  const handleSaveEditedMeeting = async (fields: MeetingEditFields) => {
-    if (!editingMeeting) return;
+  const handleSaveEditedMeeting = async (fields: MeetingEditFields, voiceTarget?: Meeting) => {
+    const target = voiceTarget ?? editingMeeting;
+    if (!target) return;
     let edited: Meeting;
     let updated: Meeting[];
     try {
-      const latest = (await StorageService.getMeetings()).find(item => item.id === editingMeeting.id);
+      const latest = (await StorageService.getMeetings()).find(item => item.id === target.id);
       if (!latest) throw new Error('Cuộc họp này không còn tồn tại.');
+      if (voiceTarget && (latest.title !== target.title || latest.meetingTime !== target.meetingTime || latest.advanceNoticeMinutes !== target.advanceNoticeMinutes || latest.repeatIntervalMinutes !== target.repeatIntervalMinutes)) {
+        throw new Error('Lịch đã thay đổi. Vui lòng mở lại để kiểm tra trước khi sửa.');
+      }
       edited = applyMeetingEdit(latest, fields);
       updated = await StorageService.updateMeeting(edited);
     } catch (error) {
@@ -206,6 +210,7 @@ export default function App() {
     }
     setMeetings(updated);
     setEditingMeeting(null);
+    if (voiceTarget) setIsVoiceModalOpen(false);
     setSelectedDate(new Date(edited.meetingTime));
     setViewMode('DAY');
     setActiveAlarmMeeting(previous => previous?.id === edited.id ? null : previous);
@@ -356,10 +361,10 @@ export default function App() {
             style={styles.floatingVoiceBtn}
             activeOpacity={0.85}
             onPress={handleOpenVoiceForSelectedDate}
-            accessibilityLabel="Nói để thêm lịch họp"
+            accessibilityLabel="Nói để thêm hoặc sửa lịch họp"
           >
             <Ionicons name="mic" size={20} color="#FFFFFF" />
-            <Text style={styles.floatingVoiceBtnText}>Nói để thêm lịch</Text>
+            <Text style={styles.floatingVoiceBtnText}>Nói để thêm / sửa lịch</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -379,6 +384,8 @@ export default function App() {
         settings={settings}
         onClose={() => setIsVoiceModalOpen(false)}
         onSaveMeeting={handleSaveVoiceMeeting}
+        meetings={meetings}
+        onEditMeeting={handleSaveEditedMeeting}
       /> : null}
 
       {/* Modal cài đặt */}
