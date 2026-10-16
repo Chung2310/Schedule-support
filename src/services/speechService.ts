@@ -2,6 +2,8 @@ import * as Speech from 'expo-speech';
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
 
+let speechSession = 0;
+
 export const SpeechService = {
   isSpeaking: false,
 
@@ -18,9 +20,12 @@ export const SpeechService = {
       onStart?: () => void;
     }
   ): Promise<void> {
+    const session = ++speechSession;
     try {
       // Dừng âm thanh đang đọc trước đó nếu có
-      await this.stop();
+      this.isSpeaking = false;
+      await Speech.stop();
+      if (session !== speechSession) return;
 
       this.isSpeaking = true;
       if (options?.onStart) options.onStart();
@@ -36,20 +41,23 @@ export const SpeechService = {
         pitch: options?.pitch ?? 1.0,
         rate: options?.rate ?? 0.90, // Tốc độ 0.90 giúp giọng đọc tiếng Việt rõ từng từ, không bị dính chữ
         onDone: () => {
+          if (session !== speechSession) return;
           this.isSpeaking = false;
           if (options?.onDone) options.onDone();
         },
         onStopped: () => {
+          if (session !== speechSession) return;
           this.isSpeaking = false;
         },
         onError: (err) => {
+          if (session !== speechSession) return;
           console.warn('Speech error:', err);
           this.isSpeaking = false;
         },
       });
     } catch (e) {
       console.warn('Speech.speak failed', e);
-      this.isSpeaking = false;
+      if (session === speechSession) this.isSpeaking = false;
     }
   },
 
@@ -57,6 +65,7 @@ export const SpeechService = {
    * Dừng đọc giọng nói ngay lập tức (khi người dùng bấm 'Đã nhớ' hoặc tắt báo thức)
    */
   async stop(): Promise<void> {
+    speechSession++;
     try {
       this.isSpeaking = false;
       await Speech.stop();

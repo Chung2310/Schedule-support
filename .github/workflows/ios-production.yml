@@ -52,6 +52,9 @@ jobs:
       - name: Check Expo dependencies and configuration
         run: npx expo-doctor
 
+      - name: Check generated iOS privacy declarations
+        run: npm run ios:check
+
   build-and-submit:
     name: Build signed iOS app and upload to App Store Connect
     if: ${{ github.ref == 'refs/heads/production' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}

@@ -58,6 +58,8 @@ export function buildTodayScheduleBriefing(todayMeetings: Meeting[], date = new 
 
 class AlarmManagerService {
   private activeReminders = new Map<string, ReturnType<typeof setTimeout>>();
+  private alarmSessions = new Map<string, symbol>();
+  private acknowledging = new Set<string>();
   private callbacks: AlarmCallbacks | null = null;
   private initialization: Promise<void> | null = null;
   private notificationQueue: Promise<unknown> = Promise.resolve();
@@ -251,15 +253,26 @@ class AlarmManagerService {
   }
 
   async triggerAlarm(meeting: Meeting, settings: AppSettings) {
-    if (AppState.currentState !== 'active') return;
-    const current = (await StorageService.getMeetings()).find((item) => item.id === meeting.id);
-    if (!current || current.status === 'ACKNOWLEDGED') return;
-    await SpeechService.speakVoiceReminder(current.voiceText, { pitch: settings.speechPitch, rate: settings.speechRate });
-    if (settings.hapticEnabled) await SpeechService.triggerAlarmHaptics();
-    this.callbacks?.onAlarm(current);
-    const updated: Meeting = { ...current, status: 'REMINDING', nagCount: current.nagCount + 1 };
-    await StorageService.updateMeeting(updated);
-    this.scheduleNextNagInMemory(updated, settings);
+    if (AppState.currentState !== 'active' || this.alarmSessions.has(meeting.id) || this.acknowledging.has(meeting.id)) return;
+    const session = Symbol();
+    this.alarmSessions.set(meeting.id, session);
+    const isCurrent = () => this.alarmSessions.get(meeting.id) === session && AppState.currentState === 'active';
+    try {
+      const current = (await StorageService.getMeetings()).find((item) => item.id === meeting.id);
+      if (!isCurrent() || !current || (current.status !== 'UPCOMING' && current.status !== 'REMINDING')) return;
+      await SpeechService.speakVoiceReminder(current.voiceText, { pitch: settings.speechPitch, rate: settings.speechRate });
+      if (!isCurrent()) return;
+      if (settings.hapticEnabled) await SpeechService.triggerAlarmHaptics();
+      if (!isCurrent()) return;
+      const updated: Meeting = { ...current, status: 'REMINDING', nagCount: current.nagCount + 1 };
+      const meetings = await StorageService.updateMeeting(updated);
+      const saved = meetings.find((item) => item.id === meeting.id);
+      if (!isCurrent() || !saved || saved.status !== 'REMINDING') return;
+      this.callbacks?.onAlarm(saved);
+      this.scheduleNextNagInMemory(saved, settings);
+    } finally {
+      if (this.alarmSessions.get(meeting.id) === session) this.alarmSessions.delete(meeting.id);
+    }
   }
 
   private scheduleNextNagInMemory(meeting: Meeting, settings: AppSettings) {
@@ -281,12 +294,23 @@ class AlarmManagerService {
   }
 
   pauseForegroundReminders() {
+    this.alarmSessions.clear();
     for (const timer of this.activeReminders.values()) clearTimeout(timer);
     this.activeReminders.clear();
     void SpeechService.stop();
   }
 
   async acknowledgeAndDismiss(meetingId: string): Promise<Meeting | null> {
+    this.acknowledging.add(meetingId);
+    try {
+      return await this.persistAcknowledgement(meetingId);
+    } finally {
+      this.acknowledging.delete(meetingId);
+    }
+  }
+
+  private async persistAcknowledgement(meetingId: string): Promise<Meeting | null> {
+    this.alarmSessions.delete(meetingId);
     const timer = this.activeReminders.get(meetingId);
     if (timer) clearTimeout(timer);
     this.activeReminders.delete(meetingId);
@@ -305,6 +329,7 @@ class AlarmManagerService {
   }
 
   async cancelAlarm(meetingId: string) {
+    this.alarmSessions.delete(meetingId);
     const timer = this.activeReminders.get(meetingId);
     if (timer) clearTimeout(timer);
     this.activeReminders.delete(meetingId);

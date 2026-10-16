@@ -36,6 +36,7 @@
     "submit:ios": "npx eas-cli@latest submit --platform ios --profile production",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "ios:check": "node scripts/check-ios-config.cjs",
     "test": "node --test",
     "legal:build": "node scripts/build-privacy-policy.cjs"
   },
