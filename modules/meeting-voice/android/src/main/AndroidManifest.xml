@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <queries>
+    <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+  </queries>
+  <application>
+    <provider
+      android:name="expo.modules.meetingvoice.MeetingVoiceFileProvider"
+      android:authorities="${applicationId}.meetingvoice"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/meeting_voice_paths" />
+    </provider>
+  </application>
+</manifest>

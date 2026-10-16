@@ -17,19 +17,21 @@ interface DayHourlyTimelineProps {
   meetings: Meeting[];
   onSimulateAlarm: (meeting: Meeting) => void;
   onDeleteMeeting: (id: string) => void;
+  onEditMeeting: (meeting: Meeting) => void;
   onSlotPress: (hour: number) => void;
   onAddMeeting: () => void;
   style?: any;
 }
 
-// Dãy đầy đủ các giờ từ 06:00 sáng đến 23:00 đêm cho cả ngày làm việc của CEO
-const HOURS = Array.from({ length: 18 }, (_, i) => i + 6);
+// Include every valid edited hour, including meetings before 06:00.
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 export const DayHourlyTimeline: React.FC<DayHourlyTimelineProps> = ({
   date,
   meetings,
   onSimulateAlarm,
   onDeleteMeeting,
+  onEditMeeting,
   onSlotPress,
   style,
 }) => {
@@ -171,6 +173,9 @@ export const DayHourlyTimeline: React.FC<DayHourlyTimelineProps> = ({
 
                               {/* Thao tác nhanh */}
                               <View style={styles.actionButtons}>
+                                <TouchableOpacity style={styles.editBtn} onPress={() => onEditMeeting(m)} accessibilityRole="button" accessibilityLabel="Sửa cuộc họp">
+                                  <Ionicons name="create-outline" size={18} color="#0A2540" />
+                                </TouchableOpacity>
                                 <TouchableOpacity
                                   style={styles.iconBtn}
                                   onPress={() => onSimulateAlarm(m)}
@@ -345,6 +350,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   reminderInfo: {
+    flex: 1,
     fontSize: 11,
     color: '#64748B',
     fontWeight: '500',
@@ -357,6 +363,7 @@ const styles = StyleSheet.create({
   iconBtn: {
     padding: 3,
   },
+  editBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   emptySlotTapArea: {
     height: 36,
     justifyContent: 'center',

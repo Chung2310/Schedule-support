@@ -11,7 +11,6 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
-  AppState,
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +18,9 @@ import * as Haptics from 'expo-haptics';
 import { STTService } from '../services/sttService';
 import { parseVietnameseVoiceMeeting } from '../services/nlpParser';
 import { AppSettings } from '../types/settings';
+import type { Meeting } from '../types/meeting';
+import { voiceEditCommand, voiceEditFields } from '../services/voiceMeetingCommand';
+import { applyMeetingEdit, type MeetingEditFields } from '../utils/meetingEdit';
 
 interface VoiceInputModalProps {
   visible: boolean;
@@ -33,6 +35,8 @@ interface VoiceInputModalProps {
   initialText?: string;
   selectedDate: Date;
   settings: AppSettings;
+  meetings: Meeting[];
+  onEditMeeting: (fields: MeetingEditFields, meeting: Meeting) => Promise<void>;
 }
 
 export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
@@ -42,11 +46,30 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   initialText = '',
   selectedDate,
   settings,
+  meetings,
+  onEditMeeting,
 }) => {
   const [transcript, setTranscript] = useState(initialText);
   const [isListening, setIsListening] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [chosenMeeting, setChosenMeeting] = useState<{ transcript: string; id: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const commandNow = useMemo(() => { void transcript; return new Date(); }, [transcript]);
+  const editCommand = useMemo(() => voiceEditCommand(transcript, meetings, commandNow), [transcript, meetings, commandNow]);
+  const editTarget = editCommand?.candidates.length === 1 ? editCommand.candidates[0]
+    : chosenMeeting?.transcript === transcript ? editCommand?.candidates.find(m => m.id === chosenMeeting.id) : undefined;
+  const editPreview = useMemo(() => {
+    if (!editCommand || !editTarget) return null;
+    try {
+      const fields = voiceEditFields(editCommand, editTarget, commandNow);
+      return { fields, meeting: applyMeetingEdit(editTarget, fields, commandNow), error: null };
+    } catch (error) {
+      return { fields: null, meeting: null, error: error instanceof Error ? error.message : 'Chưa hiểu yêu cầu sửa lịch.' };
+    }
+  }, [editCommand, editTarget, commandNow]);
 
   // Điều chỉnh thời gian nếu muốn
   const [timeOffsetMinutes, setTimeOffsetMinutes] = useState(0);
@@ -61,7 +84,27 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     STTService.stopListening();
     setIsListening(false);
     setIsStarting(false);
+    setIsFinishing(false);
   }, []);
+
+  useEffect(() => {
+    if (!isFinishing) return;
+    const timeout = setTimeout(() => {
+      stopListening();
+      setErrorMessage('Chưa nhận được kết quả cuối. Bạn có thể sửa văn bản bên dưới hoặc bấm mic để thử lại.');
+    }, 8000);
+    return () => clearTimeout(timeout);
+  }, [isFinishing, stopListening]);
+
+  const finishListening = async () => {
+    setIsFinishing(true);
+    try {
+      await STTService.finishListening();
+    } catch {
+      stopListening();
+      setErrorMessage('Không thể hoàn tất nhận diện. Bạn hãy thử lại hoặc nhập bằng bàn phím.');
+    }
+  };
 
   useEffect(() => {
     if (visible) {
@@ -76,20 +119,16 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
       } catch {}
 
     }
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'background') stopListening();
-    });
     // Opening a calendar slot does not start the microphone. The user taps mic explicitly.
     return () => {
-      subscription.remove();
       stopListening();
     };
-  }, [visible, initialText, sheetSlideAnim, stopListening]);
+  }, [visible, sheetSlideAnim, stopListening]);
 
   // Bộ phân tích ngôn ngữ tự nhiên chạy trực tiếp từ lời nói người dùng
   const parsed = useMemo(() => {
     if (!transcript.trim()) return null;
-    return parseVietnameseVoiceMeeting(transcript.trim(), selectedDate);
+    return parseVietnameseVoiceMeeting(transcript.trim(), new Date(), selectedDate);
   }, [transcript, selectedDate]);
 
   // Thời gian cuộc họp thực tế
@@ -115,15 +154,16 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   // Bắt đầu thu âm giọng nói từ micro
   const startListening = async () => {
-    if (isStarting) return;
+    if (isStarting || isFinishing || isListening) return;
     setErrorMessage(null);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
 
     // Trường hợp chạy trong Expo Go (chưa build native dev client)
-    if (!isNativeSTT) {
+    if (Platform.OS !== 'web' && !isNativeSTT) {
       setIsListening(false);
+      setErrorMessage('Bản ứng dụng này chưa hỗ trợ nhận diện giọng nói. Hãy dùng bản cài đầy đủ để thử mic, hoặc nhập bằng bàn phím.');
       inputRef.current?.focus();
       return;
     }
@@ -138,30 +178,48 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
         setTranscript(text);
         setTimeOffsetMinutes(0);
       },
+      onFinishing: () => {
+        setIsFinishing(true);
+      },
       onError: (err) => {
-        setIsStarting(false);
-        setIsListening(false);
-        if (err === 'PERMISSION_DENIED') {
+        stopListening();
+        const code = typeof err === 'string' ? err : err?.error;
+        if (code === 'PERMISSION_DENIED' || code === 'not-allowed') {
           setErrorMessage('Bạn có thể cấp quyền Micro và Nhận diện giọng nói trong Cài đặt thiết bị, hoặc nhập lịch bằng bàn phím.');
+        } else if (code === 'UNAVAILABLE' || code === 'service-not-allowed' || code === 'language-not-supported') {
+          setErrorMessage('Thiết bị chưa có dịch vụ nhận diện tiếng Việt khả dụng. Hãy kiểm tra dịch vụ giọng nói trong cài đặt thiết bị.');
+        } else if (code === 'no-speech') {
+          setErrorMessage('Chưa nghe rõ lời nói. Bấm mic và nói lại gần điện thoại hơn.');
+        } else if (code === 'NO_RESULT') {
+          setErrorMessage('Chưa nhận được lời nói. Bấm mic để nói lại hoặc nhập lịch bằng bàn phím.');
+        } else if (code === 'START_ENDED' || code === 'START_TIMEOUT') {
+          setErrorMessage(`Dịch vụ giọng nói chưa bật được micro (${code}). Hãy kiểm tra dịch vụ nhận diện giọng nói và thử lại.`);
+        } else if (code === 'APP_BACKGROUND' || code === 'APP_NOT_ACTIVE') {
+          setErrorMessage(`Phiên micro bị gián đoạn khi ứng dụng chuyển màn hình (${code}). Bấm mic để thử lại khi đang ở màn hình này.`);
+        } else if (code === 'audio-capture') {
+          setErrorMessage('Không mở được micro. Hãy kiểm tra quyền micro và đóng ứng dụng khác đang dùng micro rồi thử lại.');
+        } else if (code === 'network') {
+          setErrorMessage('Không kết nối được dịch vụ nhận diện. Kiểm tra Internet rồi thử lại.');
         } else {
-          setErrorMessage('Không nhận diện được giọng nói. Bạn hãy bấm mic trên bàn phím nhé.');
-          inputRef.current?.focus();
+          setErrorMessage(`Không nhận diện được giọng nói${code ? ` (${code})` : ''}. Bạn có thể bấm mic để thử lại hoặc nhập bằng bàn phím.`);
         }
       },
       onEnd: () => {
         setIsStarting(false);
         setIsListening(false);
+        setIsFinishing(false);
       },
     });
 
     if (!success) {
       setIsStarting(false);
       setIsListening(false);
-      inputRef.current?.focus();
+      setErrorMessage((previous) => previous ?? 'Không khởi động được micro. Bấm mic để thử lại.');
     }
   };
 
   const handleClose = () => {
+    if (savingRef.current) return;
     stopListening();
     onClose();
   };
@@ -174,8 +232,18 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   };
 
   // Xác nhận lưu lịch
-  const handleConfirm = () => {
-    if (!transcript.trim()) return;
+  const handleConfirm = async () => {
+    if (!transcript.trim() || isStarting || isListening || isFinishing || savingRef.current) return;
+    if (editCommand) {
+      if (!editPreview?.fields || !editTarget) return;
+      savingRef.current = true;
+      setSaving(true);
+      setErrorMessage(null);
+      try { await onEditMeeting(editPreview.fields, editTarget); }
+      catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Chưa lưu được thay đổi.'); }
+      finally { savingRef.current = false; setSaving(false); }
+      return;
+    }
 
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -185,7 +253,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
     const voiceSummary = `${effectiveMeetingDate.getHours()} giờ${
       effectiveMeetingDate.getMinutes() > 0 ? ` ${effectiveMeetingDate.getMinutes()} phút` : ''
-    }. Họp: ${effectiveTitle}`;
+    }. ${effectiveTitle}`;
 
     onSaveMeeting({
       title: effectiveTitle,
@@ -208,6 +276,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   });
 
   const hasContent = transcript.trim().length > 0;
+  const speechBusy = isStarting || isListening || isFinishing;
+  const canConfirm = hasContent && !speechBusy && !saving && (!editCommand || !!editPreview?.meeting);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
@@ -230,7 +300,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
               {/* Tiêu đề & Nút đóng */}
               <View style={styles.headerRow}>
-                <Text style={styles.headerTitle}>Thêm Lịch Hẹn</Text>
+                <Text style={styles.headerTitle}>{editCommand ? 'Sửa Lịch Hẹn' : 'Thêm Lịch Hẹn'}</Text>
                 <TouchableOpacity
                   onPress={handleClose}
                   style={styles.closeBtn}
@@ -249,8 +319,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     styles.micButton,
                     isListening && styles.micButtonListening,
                   ]}
-                  onPress={isListening ? stopListening : startListening}
-                  disabled={isStarting}
+                  onPress={isListening ? finishListening : startListening}
+                  disabled={isStarting || isFinishing || saving}
                   accessibilityRole="button"
                   accessibilityLabel={isListening ? 'Dừng nhận diện giọng nói' : 'Bắt đầu nhận diện giọng nói'}
                   activeOpacity={0.8}
@@ -262,10 +332,11 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   />
                 </TouchableOpacity>
 
-                <Text accessibilityLiveRegion="polite" style={[styles.micStatusText, isListening && styles.micStatusTextListening]}>
-                  {isStarting ? 'Đang chuẩn bị micro…' : isListening ? 'Đang nghe · Bấm để dừng' : 'Bấm mic để nói hoặc nhập bằng bàn phím'}
-                </Text>
-                <Text style={styles.voicePrivacyText}>Dịch vụ nhận diện của thiết bị có thể xử lý âm thanh qua mạng. Đội phát triển không nhận hay lưu bản ghi âm.</Text>
+                {speechBusy ? (
+                  <Text accessibilityLiveRegion="polite" style={[styles.micStatusText, isListening && styles.micStatusTextListening]}>
+                    {isStarting ? 'Đang chuẩn bị micro…' : isFinishing ? 'Đang hoàn tất nhận diện…' : 'Đang nghe…'}
+                  </Text>
+                ) : null}
 
                 {errorMessage ? (
                   <Text style={styles.errorText}>{errorMessage}</Text>
@@ -278,15 +349,16 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   ref={inputRef}
                   style={styles.textInput}
                   value={transcript}
+                  editable={!speechBusy && !saving}
                   onChangeText={(text) => {
                     setTranscript(text);
                     setTimeOffsetMinutes(0);
                   }}
-                  placeholder="Nội dung lịch hẹn..."
+                  placeholder="Nội dung cuộc họp"
                   placeholderTextColor="#94A3B8"
                   multiline
                 />
-                {hasContent ? (
+                {hasContent && !speechBusy && !saving ? (
                   <TouchableOpacity
                     onPress={() => {
                       setTranscript('');
@@ -300,7 +372,27 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               </View>
 
               {/* Thông tin bóc tách được (Hiện phẳng, tối giản) */}
-              {hasContent ? (
+              {editCommand && hasContent ? (
+                <View style={styles.parsedInfoCard}>
+                  {editCommand.error ? <Text style={styles.errorText}>{editCommand.error}</Text> : !editCommand.candidates.length ? <Text style={styles.errorText}>Không tìm thấy cuộc họp phù hợp. Hãy nói rõ tên hoặc giờ họp cần sửa.</Text> : null}
+                  {editCommand.candidates.length > 1 ? <Text style={styles.infoLabel}>Chọn lịch:</Text> : null}
+                  {editCommand.candidates.map(meeting => (
+                    <TouchableOpacity key={meeting.id} disabled={speechBusy || saving}
+                      accessibilityRole="button" accessibilityState={{ selected: editTarget?.id === meeting.id }}
+                      style={{ paddingVertical: 12 }} onPress={() => setChosenMeeting({ transcript, id: meeting.id })}>
+                      <Text style={styles.titleBoldText}>{editTarget?.id === meeting.id ? '✓ ' : ''}{meeting.title}</Text>
+                      <Text style={styles.dateSubText}>{new Date(meeting.meetingTime).toLocaleString('vi-VN')}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {editPreview?.error ? <Text style={styles.errorText}>{editPreview.error}</Text> : null}
+                  {editPreview?.meeting ? <View>
+                    <Text style={styles.timeBoldText}>Sau khi sửa</Text>
+                    <Text style={styles.titleBoldText}>{editPreview.meeting.title}</Text>
+                    <Text style={styles.dateSubText}>{new Date(editPreview.meeting.meetingTime).toLocaleString('vi-VN')}</Text>
+                    <Text style={styles.dateSubText}>Báo trước {editPreview.meeting.advanceNoticeMinutes} phút · Nhắc lại {editPreview.meeting.repeatIntervalMinutes} phút</Text>
+                  </View> : null}
+                </View>
+              ) : hasContent ? (
                 <View style={styles.parsedInfoCard}>
                   {/* Dòng 1: Thời gian */}
                   <View style={styles.infoRow}>
@@ -341,14 +433,14 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               <TouchableOpacity
                 style={[
                   styles.confirmBtn,
-                  !hasContent && styles.confirmBtnDisabled,
+                  !canConfirm && styles.confirmBtnDisabled,
                 ]}
-                disabled={!hasContent}
+                disabled={!canConfirm}
                 onPress={handleConfirm}
                 activeOpacity={0.85}
               >
                 <Text style={styles.confirmBtnText}>
-                  {hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
+                  {saving ? 'Đang lưu…' : editCommand ? 'Lưu thay đổi' : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
                 </Text>
               </TouchableOpacity>
               </ScrollView>
@@ -434,33 +526,11 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     fontWeight: '600',
   },
-  voicePrivacyText: { fontSize: 12, lineHeight: 17, color: '#64748B', textAlign: 'center', marginTop: 6, maxWidth: 340 },
   errorText: {
     fontSize: 12,
     color: '#DC2626',
     marginTop: 4,
     textAlign: 'center',
-  },
-  dictationGuideBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#EFF6FF',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  dictationGuideText: {
-    flex: 1,
-    fontSize: 12.5,
-    color: '#1E40AF',
-    lineHeight: 18,
-  },
-  dictationGuideBold: {
-    fontWeight: '700',
   },
   inputContainer: {
     flexDirection: 'row',

@@ -26,6 +26,19 @@ export function buildReminderPlan(
     if (!Number.isFinite(firstReminder) || !Number.isFinite(meetingStart)) continue;
     if (settings.stopOnMeetingStart && meetingStart <= now) continue;
 
+    // A newly saved meeting may already be inside its advance-notice window.
+    // Keep an initial reminder even when all original reminder times have passed.
+    const catchUpTime = now + 1_000;
+    if (meeting.status === 'UPCOMING' && firstReminder <= now &&
+        (!settings.stopOnMeetingStart || catchUpTime < meetingStart)) {
+      plan.push({
+        identifier: `ceo-meeting-${meeting.id}-catch-up`,
+        meeting,
+        date: new Date(catchUpTime),
+        repeatIndex: 0,
+      });
+    }
+
     const interval = meeting.repeatIntervalMinutes || settings.defaultRepeatIntervalMinutes || 5;
     for (let repeatIndex = 0; repeatIndex <= repeatCount; repeatIndex++) {
       const timestamp = firstReminder + repeatIndex * Math.max(1, interval) * 60_000;
