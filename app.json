@@ -5,7 +5,10 @@
     "owner": "igen-technology",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/logo.png",
+    "web": {
+      "favicon": "./assets/logo.png"
+    },
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
@@ -41,7 +44,8 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#6366F1"
+          "color": "#6366F1",
+          "sounds": ["./assets/meeting_reminder.wav"]
         }
       ],
       "expo-sqlite",

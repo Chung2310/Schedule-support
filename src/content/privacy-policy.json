@@ -23,7 +23,7 @@
       "title": "3. Thông báo và giọng đọc",
       "paragraphs": [
         "Nhắc lịch được đặt trên thiết bị bằng thông báo của hệ điều hành. Nội dung cuộc hẹn có thể xuất hiện trên màn hình khóa hoặc trung tâm thông báo. Bạn có thể tắt thông báo hoặc ẩn bản xem trước trong Cài đặt thiết bị.",
-        "Giọng đọc được sử dụng khi ứng dụng đang mở. Khi ứng dụng đã đóng hoặc thiết bị đang khóa, việc nhắc lịch dựa trên thông báo của hệ điều hành và phụ thuộc quyền thông báo, âm lượng, chế độ im lặng và chế độ tập trung của bạn."
+        "Giọng đọc thông báo được tổng hợp trên thiết bị từ nội dung lịch hẹn. Khi ứng dụng đã đóng hoặc thiết bị đang khóa, hệ điều hành phát tệp âm thanh đã tạo nếu thiết bị hỗ trợ; nếu không, thông báo dùng âm báo mặc định. Việc nhắc lịch phụ thuộc quyền thông báo, âm lượng, chế độ im lặng và chế độ tập trung của bạn."
       ]
     },
     {

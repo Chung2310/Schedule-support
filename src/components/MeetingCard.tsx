@@ -9,6 +9,7 @@ interface MeetingCardProps {
   meeting: Meeting;
   onSimulateAlarm: (meeting: Meeting) => void;
   onDelete: (id: string) => void;
+  onEdit: (meeting: Meeting) => void;
   showDateBadge?: boolean;
 }
 
@@ -16,6 +17,7 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
   meeting,
   onSimulateAlarm,
   onDelete,
+  onEdit,
   showDateBadge = false,
 }) => {
   const meetingDate = new Date(meeting.meetingTime);
@@ -80,6 +82,9 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
 
       {/* Nút thao tác nhanh */}
       <View style={styles.actionColumn}>
+        <TouchableOpacity style={styles.editBtn} onPress={() => onEdit(meeting)} accessibilityRole="button" accessibilityLabel="Sửa cuộc họp">
+          <Ionicons name="create-outline" size={20} color="#0A2540" />
+        </TouchableOpacity>
         {!isAcknowledged && (
           <TouchableOpacity
             style={styles.testBtn}
@@ -197,4 +202,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  editBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

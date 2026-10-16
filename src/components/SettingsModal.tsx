@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { AppSettings, DEFAULT_SETTINGS } from '../types/settings';
 import { SpeechService } from '../services/speechService';
+import { MeetingVoice, type NotificationVoice } from '../services/meetingVoice';
 import { PrivacyPolicyContent } from './PrivacyPolicyContent';
+import { legalDocuments, LegalDocumentId } from '../content/legal-documents';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -36,7 +38,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [stopOnMeetingStart, setStopOnMeetingStart] = useState(settings.stopOnMeetingStart ?? true);
   const [hapticEnabled, setHapticEnabled] = useState(settings.hapticEnabled ?? true);
   const [isPlayingTest, setIsPlayingTest] = useState(false);
-  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [speechVoice, setSpeechVoice] = useState(settings.speechVoice);
+  const [availableVoices, setAvailableVoices] = useState<NotificationVoice[]>([]);
+  const [isLoadingVoices, setIsLoadingVoices] = useState(true);
+  const [legalDocument, setLegalDocument] = useState<LegalDocumentId | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    let isCurrent = true;
+    void MeetingVoice.getAvailableVoices()
+      .then((voices) => {
+        if (isCurrent) setAvailableVoices(voices);
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoadingVoices(false);
+      });
+    return () => {
+      isCurrent = false;
+      void SpeechService.stop();
+    };
+  }, [visible]);
 
   const handleTestTTS = async () => {
     if (isPlayingTest) {
@@ -47,8 +68,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setIsPlayingTest(true);
     await SpeechService.speakVoiceReminder('14 giờ, họp giao ban ban giám đốc', {
       rate: settings.speechRate || 0.95,
-      pitch: 1.0,
+      pitch: settings.speechPitch || 1.0,
+      voice: speechVoice,
+      onStart: () => setIsPlayingTest(true),
       onDone: () => setIsPlayingTest(false),
+      onStopped: () => setIsPlayingTest(false),
+      onError: () => setIsPlayingTest(false),
     });
   };
 
@@ -57,6 +82,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       ...settings,
       defaultAdvanceNoticeMinutes: leadTime,
       defaultRepeatIntervalMinutes: repeatInterval,
+      speechVoice,
       stopOnMeetingStart,
       hapticEnabled,
     });
@@ -65,15 +91,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleReset = () => {
     setLeadTime(DEFAULT_SETTINGS.defaultAdvanceNoticeMinutes);
     setRepeatInterval(DEFAULT_SETTINGS.defaultRepeatIntervalMinutes);
+    setSpeechVoice(DEFAULT_SETTINGS.speechVoice);
     setStopOnMeetingStart(DEFAULT_SETTINGS.stopOnMeetingStart);
     setHapticEnabled(DEFAULT_SETTINGS.hapticEnabled);
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={showPrivacy ? () => setShowPrivacy(false) : onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={legalDocument ? () => setLegalDocument(null) : onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          {showPrivacy ? <PrivacyPolicyContent onBack={() => setShowPrivacy(false)} /> : <>
+          {legalDocument ? <PrivacyPolicyContent key={legalDocument} document={legalDocument} onBack={() => setLegalDocument(null)} /> : <>
           {/* Header tối giản kiểu iOS */}
           <View style={styles.header}>
             <Text style={styles.title}>Cài Đặt</Text>
@@ -190,7 +217,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <View style={styles.settingRow}>
               <View style={styles.rowLabelGroup}>
                 <Ionicons name="volume-high-outline" size={17} color="#0A2540" />
-                <Text style={styles.rowLabel}>Giọng đọc nhắc lịch</Text>
+                <Text style={styles.rowLabel}>Giọng đọc thông báo</Text>
               </View>
               <TouchableOpacity
                 style={[
@@ -215,14 +242,78 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </Text>
               </TouchableOpacity>
             </View>
+            <Text style={styles.voiceHint}>Chọn giọng tiếng Việt. Bạn có thể nghe thử trước khi lưu.</Text>
+            {isLoadingVoices ? (
+              <Text style={styles.voiceStatus}>Đang tải danh sách giọng...</Text>
+            ) : (
+              <View style={styles.voiceList}>
+                <TouchableOpacity
+                  style={styles.voiceOption}
+                  onPress={() => {
+                    if (isPlayingTest) void SpeechService.stop();
+                    setIsPlayingTest(false);
+                    setSpeechVoice(undefined);
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: !speechVoice }}
+                >
+                  <View style={styles.voiceOptionText}>
+                    <Text style={styles.voiceName}>Tự động chọn</Text>
+                    <Text style={styles.voiceDetails}>Giọng mặc định của thiết bị</Text>
+                  </View>
+                  <Ionicons
+                    name={!speechVoice ? 'radio-button-on' : 'radio-button-off'}
+                    size={20}
+                    color={!speechVoice ? '#0A2540' : '#94A3B8'}
+                  />
+                </TouchableOpacity>
+                {availableVoices.map((voice) => {
+                  const isSelected = speechVoice === voice.identifier;
+                  return (
+                    <TouchableOpacity
+                      key={voice.identifier}
+                      style={styles.voiceOption}
+                      onPress={() => {
+                        if (isPlayingTest) void SpeechService.stop();
+                        setIsPlayingTest(false);
+                        setSpeechVoice(voice.identifier);
+                      }}
+                      activeOpacity={0.7}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: isSelected }}
+                    >
+                      <View style={styles.voiceOptionText}>
+                        <Text style={styles.voiceName}>{voice.name}</Text>
+                        <Text style={styles.voiceDetails}>
+                          {voice.language}{voice.quality === 'Enhanced' ? ' · Chất lượng cao' : ''}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                        size={20}
+                        color={isSelected ? '#0A2540' : '#94A3B8'}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+                {availableVoices.length === 0 && (
+                  <Text style={styles.voiceStatus}>
+                    Chưa tìm thấy giọng tiếng Việt đã cài trên thiết bị.
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
 
-          <Text style={styles.note}>Giọng đọc hoạt động khi ứng dụng đang mở. Khi đóng ứng dụng hoặc khóa máy, bạn nhận nhắc lịch bằng thông báo của thiết bị.</Text>
-          <TouchableOpacity accessibilityRole="button" onPress={() => setShowPrivacy(true)} style={styles.privacyButton}>
+          <Text style={styles.note}>Giọng đã chọn được dùng khi ứng dụng mở và trong thông báo nếu thiết bị hỗ trợ. Nếu không, thiết bị sẽ phát âm báo mặc định.</Text>
+          {(Object.keys(legalDocuments) as LegalDocumentId[]).map((id) => (
+          <TouchableOpacity key={id} accessibilityRole="button" onPress={() => setLegalDocument(id)} style={styles.privacyButton}>
             <Ionicons name="shield-checkmark-outline" size={18} color="#0A2540" />
-            <Text style={styles.privacyText}>Chính sách quyền riêng tư</Text>
+            <Text style={styles.privacyText}>{legalDocuments[id].content.title}{'\n'}{legalDocuments[id].label}</Text>
             <Ionicons name="chevron-forward" size={18} color="#64748B" />
           </TouchableOpacity>
+          ))}
 
           {/* Text link: Đặt lại mặc định */}
           <TouchableOpacity
@@ -368,6 +459,46 @@ const styles = StyleSheet.create({
   },
   audioTestTextActive: {
     color: '#EF4444',
+  },
+  voiceHint: {
+    color: '#64748B',
+    fontSize: 12,
+    lineHeight: 18,
+    marginHorizontal: 2,
+    marginTop: -2,
+    marginBottom: 6,
+  },
+  voiceList: {
+    paddingBottom: 4,
+  },
+  voiceOption: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#F1F5F9',
+  },
+  voiceOptionText: {
+    flex: 1,
+    gap: 2,
+  },
+  voiceName: {
+    color: '#1E293B',
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
+  voiceDetails: {
+    color: '#64748B',
+    fontSize: 11.5,
+  },
+  voiceStatus: {
+    color: '#64748B',
+    fontSize: 12,
+    lineHeight: 18,
+    paddingVertical: 10,
   },
   resetLinkBox: {
     alignItems: 'center',

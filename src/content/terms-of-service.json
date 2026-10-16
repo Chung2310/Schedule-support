@@ -1,0 +1,32 @@
+{
+  "title": "Điều khoản dịch vụ",
+  "appName": "Igen check",
+  "updatedAt": "16/10/2026",
+  "intro": "Điều khoản này áp dụng cho việc sử dụng Igen check để tạo, quản lý và nhắc lịch hẹn trên thiết bị của bạn.",
+  "sections": [
+    {
+      "title": "1. Chấp nhận điều khoản",
+      "paragraphs": ["Khi sử dụng ứng dụng, bạn đồng ý với các điều khoản này. Nếu không đồng ý, bạn có thể ngừng sử dụng và xóa ứng dụng bất cứ lúc nào."]
+    },
+    {
+      "title": "2. Trách nhiệm của người dùng",
+      "paragraphs": ["Bạn chịu trách nhiệm về nội dung lịch đã nhập và việc bảo vệ thiết bị. Chỉ nhập thông tin mà bạn có quyền sử dụng; không sử dụng ứng dụng để xâm phạm quyền riêng tư hoặc quyền của người khác.", "Ứng dụng hiện không yêu cầu tài khoản. Lịch và cài đặt được lưu trên thiết bị; bạn cần tự quản lý dữ liệu và các bản sao lưu của mình."]
+    },
+    {
+      "title": "3. Nhận diện giọng nói và kiểm tra lịch",
+      "paragraphs": ["Kết quả nhận diện và phân tích lời nói có thể sai hoặc thiếu. Hãy kiểm tra tiêu đề, ngày, giờ và nội dung nhắc trước khi xác nhận lưu lịch.", "Dịch vụ nhận diện giọng nói của hệ điều hành hoặc trình duyệt có thể cần kết nối mạng và tuân theo điều khoản, chính sách riêng của nhà cung cấp."]
+    },
+    {
+      "title": "4. Thông báo và tính sẵn sàng",
+      "paragraphs": ["Việc nhắc lịch phụ thuộc vào quyền thông báo, cài đặt âm thanh, chế độ tập trung và khả năng hoạt động của thiết bị. Giọng đọc hoạt động khi ứng dụng đang mở; khi ứng dụng đóng, nhắc lịch dựa trên thông báo hệ thống.", "Ứng dụng không bảo đảm mọi lời nhắc đều được phát đúng lúc trong mọi điều kiện. Với lịch quan trọng, bạn nên có phương án nhắc dự phòng."]
+    },
+    {
+      "title": "5. Quyền riêng tư và xóa dữ liệu",
+      "paragraphs": ["Chính sách quyền riêng tư mô tả cách ứng dụng xử lý lịch, giọng nói và quyền truy cập. Trang Xóa dữ liệu hướng dẫn xóa lịch, dữ liệu cục bộ và quản lý bản sao lưu.", "Bạn có thể ngừng sử dụng, thu hồi quyền truy cập hoặc gỡ ứng dụng. Đội phát triển không có máy chủ lưu lịch để khôi phục dữ liệu đã xóa cho bạn."]
+    },
+    {
+      "title": "6. Thay đổi và hỗ trợ",
+      "paragraphs": ["Tính năng và điều khoản có thể được cập nhật khi ứng dụng thay đổi. Ngày cập nhật được hiển thị ở đầu trang.", "Nếu cần hỗ trợ, hãy dùng đường dẫn Hỗ trợ trên trang ứng dụng tại cửa hàng mà bạn đã tải ứng dụng."]
+    }
+  ]
+}

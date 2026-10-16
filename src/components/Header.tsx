@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, StatusBar } from 'react-native';
+import { View, Text, Image, StyleSheet, TouchableOpacity, Platform, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface HeaderProps {
@@ -33,9 +33,15 @@ export const Header: React.FC<HeaderProps> = ({
         ) : null}
       </View>
 
-      {/* Cột giữa: TIÊU ĐỀ LỊCH HỌP ĐƯỢC ĐƯA RA CHÍNH GIỮA */}
+      {/* The supplied square logo has white padding around its centered wordmark. */}
       <View style={styles.centerBox}>
-        <Text style={styles.title}>Lịch Họp</Text>
+        <Image
+          source={require('../../assets/logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+          accessible
+          accessibilityLabel="Igen check"
+        />
       </View>
 
       {/* Cột phải: Nút Cài đặt */}
@@ -85,15 +91,15 @@ const styles = StyleSheet.create({
   },
   centerBox: {
     flex: 1,
+    height: 36,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0A2540',
-    letterSpacing: -0.3,
-    textAlign: 'center',
+  logo: {
+    width: '100%',
+    maxWidth: 180,
+    aspectRatio: 1,
   },
   sideColRight: {
     width: 105,

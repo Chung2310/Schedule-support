@@ -18,6 +18,7 @@ interface DayDetailViewProps {
   onAddMeeting: () => void;
   onSimulateAlarm: (meeting: Meeting) => void;
   onDeleteMeeting: (id: string) => void;
+  onEditMeeting: (meeting: Meeting) => void;
 }
 
 export const DayDetailView: React.FC<DayDetailViewProps> = ({
@@ -27,6 +28,7 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
   onAddMeeting,
   onSimulateAlarm,
   onDeleteMeeting,
+  onEditMeeting,
 }) => {
   const dayOfWeek = date.toLocaleDateString('vi-VN', { weekday: 'long' });
   const dayNumber = date.getDate();
@@ -93,6 +95,7 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
                 meeting={item}
                 onSimulateAlarm={onSimulateAlarm}
                 onDelete={onDeleteMeeting}
+                onEdit={onEditMeeting}
               />
             ))}
           </View>
