@@ -34,6 +34,7 @@
     "android": "expo start --android --port 8088",
     "ios": "expo start --ios --port 8088",
     "web": "expo start --web --port 8088",
+    "build:android:apk": "node scripts/build-android-apk.cjs",
     "build:android:test": "npx eas-cli@latest build --platform android --profile preview-device",
     "build:ios": "node scripts/build-ios.cjs",
     "submit:ios": "npx eas-cli@latest submit --platform ios --profile production",
