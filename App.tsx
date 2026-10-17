@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   SafeAreaView,
   View,
@@ -18,6 +18,7 @@ import { StorageService } from './src/services/storage';
 import { TodayWidgets } from './src/services/todayWidgets';
 import { AlarmManager } from './src/services/alarmManager';
 import { isSameDay } from './src/utils/dateUtils';
+import { useLocalDay } from './src/hooks/useLocalDay';
 
 import { Header } from './src/components/Header';
 import { YearView } from './src/components/YearView';
@@ -29,8 +30,10 @@ import { VoiceInputModal } from './src/components/VoiceInputModal';
 import { SettingsModal } from './src/components/SettingsModal';
 import { EditMeetingModal } from './src/components/EditMeetingModal';
 import { applyMeetingEdit, MeetingEditFields } from './src/utils/meetingEdit';
+import { MeetingConflictError } from './src/utils/meetingConflict';
 
 export default function App() {
+  const today = useLocalDay();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isCalendarLoaded, setIsCalendarLoaded] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -39,7 +42,8 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'YEAR' | 'MONTH' | 'DAY'>('MONTH');
 
   // Ngày đang được chọn trên lịch
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(() => today);
+  const previousTodayRef = useRef(today);
 
   // Text gợi ý khởi tạo cho modal giọng nói khi bấm vào khung giờ trống
   const [initialVoiceText, setInitialVoiceText] = useState<string>('');
@@ -51,6 +55,16 @@ export default function App() {
 
   // Active alarm for iPhone-style full overlay
   const [activeAlarmMeeting, setActiveAlarmMeeting] = useState<Meeting | null>(null);
+
+  useEffect(() => {
+    const previous = previousTodayRef.current;
+    previousTodayRef.current = today;
+    if (isSameDay(previous, today)) return;
+    // Follow today when idle on today; preserve another day or an open voice/edit draft.
+    if (!isVoiceModalOpen && !editingMeeting) {
+      setSelectedDate((selected) => isSameDay(selected, previous) ? today : selected);
+    }
+  }, [today, isVoiceModalOpen, editingMeeting]);
 
   // Load initial data from SQLite & sync background alarms
   const loadData = useCallback(async () => {
@@ -67,7 +81,7 @@ export default function App() {
 
   useEffect(() => {
     if (isCalendarLoaded) void TodayWidgets.sync(meetings);
-  }, [meetings, isCalendarLoaded]);
+  }, [meetings, isCalendarLoaded, today]);
 
   useEffect(() => {
     let disposed = false;
@@ -163,7 +177,7 @@ export default function App() {
     );
 
     const newMeeting: Meeting = {
-      id: `meeting-${Date.now()}`,
+      id: `meeting-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       title: data.title,
       meetingTime: data.meetingTime.toISOString(),
       advanceNoticeMinutes: data.advanceNoticeMinutes,
@@ -178,9 +192,9 @@ export default function App() {
     let updated: Meeting[];
     try {
       updated = await StorageService.addMeeting(newMeeting);
-    } catch {
-      Alert.alert('Chưa lưu được lịch', 'Không thể ghi dữ liệu trên thiết bị. Bạn hãy kiểm tra dung lượng trống và thử lại.');
-      return;
+    } catch (error) {
+      if (error instanceof MeetingConflictError) throw error;
+      throw new Error('Chưa lưu được lịch trên thiết bị. Hãy kiểm tra dung lượng trống và thử lại.');
     }
     setMeetings(updated);
 
@@ -280,7 +294,7 @@ export default function App() {
     if (!scheduled) {
       Alert.alert('Đã lưu cài đặt', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
     } else if (AlarmManager.voiceFallbackMeetingIds.size > 0) {
-      Alert.alert('Đã lưu cài đặt', 'Một số lịch vẫn dùng chuông vì chưa tạo được giọng đọc. Hãy thử giọng đọc khi khóa màn hình trong Cài đặt để kiểm tra.');
+      Alert.alert('Đã lưu cài đặt', 'Một số lịch vẫn dùng chuông vì chưa tạo được giọng đọc. Mở Cài đặt → Tùy chọn thêm → Thử thông báo khi khóa máy để kiểm tra.');
     }
   };
 
@@ -318,6 +332,7 @@ export default function App() {
         {viewMode === 'YEAR' ? (
           /* LEVEL 0: MÀN HÌNH XEM CẢ NĂM (12 THÁNG) */
           <YearView
+            today={today}
             initialYear={selectedDate.getFullYear()}
             meetings={meetings}
             onSelectMonth={(year, monthIndex) => {
@@ -328,6 +343,7 @@ export default function App() {
         ) : viewMode === 'MONTH' ? (
           /* LEVEL 1: MÀN HÌNH LỊCH CẢ THÁNG (MẶC ĐỊNH KHI VÀO LỊCH) */
           <FullMonthCalendar
+            today={today}
             meetings={meetings}
             selectedDate={selectedDate}
             onMonthChange={(date) => setSelectedDate(date)}
@@ -348,6 +364,7 @@ export default function App() {
           <View style={styles.contentBody}>
             {/* Thanh ngày trượt ngang giới hạn trong tháng */}
             <CalendarView
+              today={today}
               meetings={meetings}
               selectedDate={selectedDate}
               onSelectDate={(date) => setSelectedDate(date)}
@@ -413,7 +430,6 @@ export default function App() {
         settings={settings}
         onClose={() => setIsSettingsModalOpen(false)}
         onSave={handleSaveSettings}
-        onRefreshWidget={isCalendarLoaded ? () => TodayWidgets.sync(meetings) : undefined}
         onTestNotification={(previewSettings) =>
           AlarmManager.scheduleVoicePreview(previewSettings)
         }

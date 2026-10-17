@@ -28,9 +28,8 @@ export interface CalendarDay {
   dateKey: string;
 }
 
-export function generateMonthDays(year: number, month: number): CalendarDay[] {
+export function generateMonthDays(year: number, month: number, today = new Date()): CalendarDay[] {
   const days: CalendarDay[] = [];
-  const today = new Date();
 
   // Ngày đầu tiên của tháng
   const firstDay = new Date(year, month, 1);

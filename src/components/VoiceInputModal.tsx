@@ -21,6 +21,7 @@ import { AppSettings } from '../types/settings';
 import type { Meeting } from '../types/meeting';
 import { voiceEditCommand, voiceEditFields } from '../services/voiceMeetingCommand';
 import { applyMeetingEdit, type MeetingEditFields } from '../utils/meetingEdit';
+import { findMeetingTimeConflict, meetingConflictMessage, meetingMinute } from '../utils/meetingConflict';
 
 interface VoiceInputModalProps {
   visible: boolean;
@@ -146,6 +147,17 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     return baseDate;
   }, [parsed, selectedDate, timeOffsetMinutes]);
 
+  const timeConflict = useMemo(() => {
+    if (!transcript.trim()) return undefined;
+    if (editCommand) {
+      if (!editPreview?.meeting || !editTarget ||
+          meetingMinute(editPreview.meeting.meetingTime) === meetingMinute(editTarget.meetingTime)) return undefined;
+      return findMeetingTimeConflict(meetings, editPreview.meeting.meetingTime, editTarget.id);
+    }
+    if (!Number.isFinite(effectiveMeetingDate.getTime())) return undefined;
+    return findMeetingTimeConflict(meetings, effectiveMeetingDate.toISOString());
+  }, [transcript, editCommand, editPreview, editTarget, meetings, effectiveMeetingDate]);
+
   const effectiveTitle = useMemo(() => {
     if (parsed && parsed.title) return parsed.title;
     if (transcript.trim()) return transcript.trim();
@@ -226,6 +238,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   const handleAdjustMinutes = (delta: number) => {
     setTimeOffsetMinutes((prev) => prev + delta);
+    setErrorMessage(null);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
@@ -233,7 +246,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   // Xác nhận lưu lịch
   const handleConfirm = async () => {
-    if (!transcript.trim() || isStarting || isListening || isFinishing || savingRef.current) return;
+    if (!transcript.trim() || isStarting || isListening || isFinishing || savingRef.current || timeConflict) return;
     if (editCommand) {
       if (!editPreview?.fields || !editTarget) return;
       savingRef.current = true;
@@ -287,7 +300,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   const hasContent = transcript.trim().length > 0;
   const speechBusy = isStarting || isListening || isFinishing;
-  const canConfirm = hasContent && !speechBusy && !saving && (!editCommand || !!editPreview?.meeting);
+  const canConfirm = hasContent && !speechBusy && !saving && !timeConflict && (!editCommand || !!editPreview?.meeting);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
@@ -363,6 +376,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   onChangeText={(text) => {
                     setTranscript(text);
                     setTimeOffsetMinutes(0);
+                    setErrorMessage(null);
                   }}
                   placeholder="Nội dung cuộc họp"
                   placeholderTextColor="#94A3B8"
@@ -373,6 +387,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     onPress={() => {
                       setTranscript('');
                       setTimeOffsetMinutes(0);
+                      setErrorMessage(null);
                     }}
                     style={styles.clearBtn}
                   >
@@ -440,6 +455,9 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               ) : null}
 
               {/* Nút Xác nhận duy nhất */}
+              {timeConflict && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>
+                {meetingConflictMessage(timeConflict)}
+              </Text> : null}
               <TouchableOpacity
                 style={[
                   styles.confirmBtn,

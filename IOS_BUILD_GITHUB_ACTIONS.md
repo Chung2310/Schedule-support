@@ -257,7 +257,7 @@ Trước khi upload, script kiểm tra IPA bắt buộc phải có extension wid
 
 ### Cập nhật dữ liệu và chuyển ngày
 
-App gửi timeline sang App Group khi đọc dữ liệu, thêm, sửa hoặc xóa lịch; khi trở lại app sẽ đọc lại lịch và gửi lại timeline. Có nút **Cài đặt → Cập nhật widget** để yêu cầu cập nhật thủ công.
+App gửi timeline sang App Group khi đọc dữ liệu, thêm, sửa hoặc xóa lịch; khi trở lại app sẽ đọc lại lịch và gửi lại timeline. Khi ngày hoặc múi giờ thay đổi, app cũng tạo lại timeline. Hướng dẫn thêm widget nằm trong **Cài đặt → Tùy chọn thêm → Cách thêm widget**.
 
 Timeline có mốc cho ngày chứa lịch, sau phút bắt đầu mỗi lịch và nửa đêm tiếp theo. Các ngày có lịch tương lai đã lưu được chuẩn bị trước, không cần app chạy nền liên tục. Ngày không có lịch hiển thị trạng thái trống; entry cuối không giữ ngày tháng cố định để tránh hiển thị ngày cũ mãi mãi. Widget không lấy lịch của ngày người dùng đang chọn trong app, mà lấy ngày hiện tại trên thiết bị lúc đồng bộ.
 

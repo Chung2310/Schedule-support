@@ -11,6 +11,7 @@ import { Meeting } from '../types/meeting';
 import { formatDateKey, isSameDay, getDaysInMonth } from '../utils/dateUtils';
 
 interface CalendarViewProps {
+  today: Date;
   meetings: Meeting[];
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
@@ -21,6 +22,7 @@ const WEEK_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 const ITEM_WIDTH = 54;
 
 export const CalendarView: React.FC<CalendarViewProps> = ({
+  today,
   meetings,
   selectedDate,
   onSelectDate,
@@ -41,7 +43,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       map.set(dateKey, existing);
     }
     return map;
-  }, [meetings]);
+    // Local Date fields change with the device timezone; today invalidates this cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetings, today]);
 
   // Chỉ sinh các ngày trong tháng đó (1 .. 28/30/31)
   const daysInMonth = useMemo(() => {
@@ -70,7 +74,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       });
     }
     return list;
-  }, [selectedDate]);
+    // Recreate local midnights after a timezone change, even with the same selectedDate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, today]);
 
   // Tự động cuộn đến ngày đang chọn trong tháng
   useEffect(() => {
@@ -97,6 +103,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       {/* Tiêu đề tháng hiện tại */}
       <View style={styles.monthHeaderRow}>
         <Text style={styles.monthTitleText}>{monthTitle}</Text>
+        <TouchableOpacity onPress={() => onSelectDate(new Date(today))} accessibilityRole="button" accessibilityLabel="Quay về hôm nay" style={styles.todayButton}>
+          <Text style={styles.todayButtonText}>Hôm nay</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Dải các ngày trượt ngang GIỚI HẠN CHỈ TRONG THÁNG ĐÓ */}
@@ -109,6 +118,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       >
         {daysInMonth.map((item, idx) => {
           const isSelected = isSameDay(item.date, selectedDate);
+          const isToday = isSameDay(item.date, today);
           const eventInfo = meetingDateMap.get(item.dateKey);
           const hasMeetings = !!eventInfo && eventInfo.count > 0;
 
@@ -118,6 +128,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               style={styles.dayItem}
               onPress={() => onSelectDate(item.date)}
               activeOpacity={0.7}
+              accessibilityLabel={`${item.date.getDate()}/${item.date.getMonth() + 1}/${item.date.getFullYear()}${isToday ? ', hôm nay' : ''}`}
+              accessibilityState={{ selected: isSelected }}
             >
               {/* Thứ trong tuần */}
               <Text
@@ -135,6 +147,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 style={[
                   styles.dayCircle,
                   hasMeetings && styles.dayCircleHasMeetings,
+                  isToday && styles.dayCircleToday,
                   isSelected && styles.dayCircleSelected,
                 ]}
               >
@@ -188,6 +201,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   monthHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 2,
     paddingBottom: 6,
@@ -232,6 +248,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     borderWidth: 1.5,
     borderColor: '#93C5FD',
+  },
+  dayCircleToday: {
+    borderWidth: 2,
+    borderColor: '#2563EB',
+  },
+  todayButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#EFF6FF',
+  },
+  todayButtonText: {
+    color: '#2563EB',
+    fontSize: 13,
+    fontWeight: '700',
   },
   // Ô khi chọn: Đổi từ màu đen sang màu xanh Apple hiện đại
   dayCircleSelected: {

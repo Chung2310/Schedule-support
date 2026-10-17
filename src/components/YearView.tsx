@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import { Meeting } from '../types/meeting';
 import { generateMonthDays, formatDateKey, isSameDay } from '../utils/dateUtils';
 
 interface YearViewProps {
+  today: Date;
   initialYear: number;
   meetings: Meeting[];
   onSelectMonth: (year: number, monthIndex: number) => void;
@@ -34,12 +35,20 @@ const MONTH_NAMES = [
 const MINI_WEEK_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 
 export const YearView: React.FC<YearViewProps> = ({
+  today,
   initialYear,
   meetings,
   onSelectMonth,
 }) => {
   const [currentYear, setCurrentYear] = useState<number>(initialYear);
-  const today = new Date();
+  const previousInitialYearRef = useRef(initialYear);
+
+  useEffect(() => {
+    const previous = previousInitialYearRef.current;
+    previousInitialYearRef.current = initialYear;
+    // Follow a year rollover while keeping an explicitly browsed year in place.
+    setCurrentYear((current) => current === previous ? initialYear : current);
+  }, [initialYear]);
 
   // Map ngày -> số cuộc họp
   const meetingDateMap = useMemo(() => {
@@ -49,7 +58,9 @@ export const YearView: React.FC<YearViewProps> = ({
       map.set(dateKey, (map.get(dateKey) || 0) + 1);
     }
     return map;
-  }, [meetings]);
+    // Local Date fields change with the device timezone; today invalidates this cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetings, today]);
 
   // Đếm tổng số cuộc họp của từng tháng trong năm
   const monthMeetingCounts = useMemo(() => {
@@ -61,7 +72,9 @@ export const YearView: React.FC<YearViewProps> = ({
       }
     }
     return counts;
-  }, [meetings, currentYear]);
+    // Meetings near month/year boundaries can move when the device timezone changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetings, currentYear, today]);
 
   const handlePrevYear = () => {
     setCurrentYear((prev) => prev - 1);
@@ -102,7 +115,7 @@ export const YearView: React.FC<YearViewProps> = ({
       {/* Lưới 12 tháng (2 cột chuẩn mobile, chạm vào tháng nào thì mở tháng đó) */}
       <View style={styles.monthsGrid}>
         {MONTH_NAMES.map((monthName, monthIndex) => {
-          const monthDays = generateMonthDays(currentYear, monthIndex);
+          const monthDays = generateMonthDays(currentYear, monthIndex, today);
           const meetingsInMonth = monthMeetingCounts[monthIndex];
           const isCurrentMonth =
             today.getFullYear() === currentYear && today.getMonth() === monthIndex;
