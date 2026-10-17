@@ -8,6 +8,7 @@ const expected = {
   slug: 'schedule',
   projectId: '6b866bf1-af89-481f-840e-c2779ec6c5fb',
   bundleIdentifier: 'com.igen.schedule',
+  appleTeamId: 'VP77TD9A77',
 };
 
 function validateProductionContext(env = process.env) {
@@ -29,6 +30,7 @@ function prepareBuildConfig(app, eas, env = process.env) {
     slug: app?.slug,
     projectId: app?.extra?.eas?.projectId,
     bundleIdentifier: app?.ios?.bundleIdentifier,
+    appleTeamId: app?.ios?.appleTeamId,
   };
   for (const [key, value] of Object.entries(expected)) {
     if (actual[key] !== value) throw new Error(`Unexpected iOS project: ${key} must be ${value}.`);

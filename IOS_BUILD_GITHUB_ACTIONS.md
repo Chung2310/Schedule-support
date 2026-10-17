@@ -178,6 +178,8 @@ Chỉ sau khi kiểm tra đạt, workflow mới lưu IPA và thông tin build th
 | Bị chặn nhánh/môi trường | Chạy workflow trên production; không chạy lệnh build trên Windows |
 | Token invalid hoặc thiếu quyền | Thay GitHub Secret `EXPO_TOKEN`, kiểm tra quyền organization |
 | Credentials thiếu/hết hạn | Dùng `eas credentials --platform ios` và chọn đúng production/project |
+| `Input is required ... Apple Team ID` | Workflow đã khai báo `EXPO_APPLE_TEAM_ID=VP77TD9A77` và `EXPO_APPLE_TEAM_TYPE=COMPANY_OR_ORGANIZATION`; dùng commit mới. Lỗi hỏi thông tin team chưa chứng minh API key bị hỏng |
+| `ExpoWidgetsTarget ... Credentials are not set up` | Chuẩn bị profile riêng cho `com.igen.schedule.widgets` và App Group theo mục Widget iOS; chạy lại workflow sau khi lưu credentials lên EAS |
 | Không tìm thấy Xcode 26.6 | Kiểm tra phần mềm runner; cập nhật `DEVELOPER_DIR` tới Xcode tương thích SDK 57 |
 | Thiếu CocoaPods/fastlane | Đọc bước Check macOS build tools và chuẩn bị công cụ trên runner |
 | Native compile thất bại | Đọc log bước Build signed production IPA locally |
@@ -230,6 +232,8 @@ Widget dùng `expo-widgets` và giao diện SwiftUI từ `@expo/ui`, đúng SDK 
 6. Lưu cả hai profile vào credentials của project `@igen-technology/schedule` trên EAS. Có thể thực hiện từ Windows bằng lệnh dưới và đăng nhập Apple khi được hỏi. Nếu CLI hỏi chọn target, xử lý cả app chính và `ExpoWidgetsTarget`:
 
    ```powershell
+   $env:EXPO_APPLE_TEAM_ID = "VP77TD9A77"
+   $env:EXPO_APPLE_TEAM_TYPE = "COMPANY_OR_ORGANIZATION"
    npx eas-cli@latest credentials:configure-build --platform ios --profile production
    ```
 
@@ -240,6 +244,10 @@ Widget dùng `expo-widgets` và giao diện SwiftUI từ `@expo/ui`, đúng SDK 
    ```
 
    Mỗi profile phải có entitlement `com.apple.security.application-groups` chứa `group.com.igen.schedule`. Không dùng profile `com.igen.3s` hoặc profile của app chính cho extension.
+
+   Nếu CLI hỏi Apple login, đăng nhập tài khoản có quyền trên team **IGEN TECHNOLOGY**, hoàn tất 2FA. Chọn certificate Distribution hiện có khi còn hợp lệ; đồng ý tạo/cập nhật provisioning profile cho từng target. Kết thúc phải có credentials đầy đủ cho **cả `iGenCheck` và `ExpoWidgetsTarget`**. Sau đó push các sửa đổi cấu hình lên `production`, hoặc chạy lại workflow nếu cấu hình mới đã có trên `production`.
+
+`app.json` đã khai báo `ios.appleTeamId` cho các native target. Workflow cũng truyền `EXPO_APPLE_TEAM_ID` và `EXPO_APPLE_TEAM_TYPE` cho bước build/upload để EAS CLI không hỏi team khi API key đã lưu thiếu metadata team. Đây là thông tin công khai đã ghi trong workflow, không cần thêm GitHub Secret. Nếu sau đó Apple báo key bị thu hồi hoặc không đủ quyền thì mới kiểm tra API key trong trình quản lý credentials; không suy ra key hỏng chỉ từ lỗi không đọc được stdin.
 
 Lệnh quản lý credentials không khởi tạo Cloud Build và không dùng lượt EAS Cloud Build. Expo token xác thực tài khoản Expo; thao tác cấp App Group cần quyền Apple Developer của team. Không tạo app mới trên App Store Connect cho extension; vẫn upload vào app ID `6823442026`.
 

@@ -13,6 +13,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.igen.schedule",
+      "appleTeamId": "VP77TD9A77",
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Chuyển lời nói thành văn bản để tạo lịch hẹn. Dịch vụ nhận diện của Apple có thể xử lý âm thanh qua mạng.",
         "NSMicrophoneUsageDescription": "Dùng micro khi bạn bấm ghi âm để nhập lịch hẹn bằng giọng nói. Bạn cũng có thể nhập bằng bàn phím.",
