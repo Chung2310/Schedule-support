@@ -34,29 +34,24 @@ function voiceLocation(voice: NotificationVoice): string | null {
 
 function MinuteOptions({ label, value, options, onChange }: {
   label: string;
-  value: string;
+  value: number;
   options: number[];
-  onChange: (value: string) => void;
+  onChange: (value: number) => void;
 }) {
+  const choices = options.includes(value) ? options : [...options, value].sort((a, b) => a - b);
   return <View style={styles.optionField}>
     <Text style={styles.rowLabel}>{label}</Text>
     <View style={styles.options}>
-      {options.map((minutes) => <TouchableOpacity
+      {choices.map((minutes) => <TouchableOpacity
         key={minutes}
-        style={[styles.option, value === String(minutes) && styles.optionSelected]}
-        onPress={() => onChange(String(minutes))}
+        style={[styles.option, value === minutes && styles.optionSelected]}
+        onPress={() => onChange(minutes)}
         accessibilityRole="radio"
         accessibilityLabel={label + ' ' + minutes + ' phút'}
-        accessibilityState={{ checked: value === String(minutes) }}
+        accessibilityState={{ checked: value === minutes }}
       >
-        <Text style={[styles.optionText, value === String(minutes) && styles.optionTextSelected]}>{minutes} phút</Text>
+        <Text style={[styles.optionText, value === minutes && styles.optionTextSelected]}>{minutes} phút</Text>
       </TouchableOpacity>)}
-    </View>
-    <View style={styles.customMinuteRow}>
-      <Text style={styles.voiceDetail}>Tự chọn</Text>
-      <TextInput style={styles.minuteInput} value={value} onChangeText={(text) => onChange(text.replace(/\D/g, '').slice(0, 4))}
-        keyboardType="number-pad" selectTextOnFocus maxLength={4} accessibilityLabel={label + ' số phút tùy chọn'} />
-      <Text style={styles.voiceDetail}>phút</Text>
     </View>
   </View>;
 }
@@ -107,9 +102,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   visible, settings, onClose, onSave, onTestNotification,
 }) => {
   const showDialog = useAppDialog();
-  const [leadTime, setLeadTime] = useState(String(settings.defaultAdvanceNoticeMinutes));
-  const [repeatInterval, setRepeatInterval] = useState(String(settings.defaultRepeatIntervalMinutes));
-  const [minuteError, setMinuteError] = useState('');
+  const [leadTime, setLeadTime] = useState(settings.defaultAdvanceNoticeMinutes);
+  const [repeatInterval, setRepeatInterval] = useState(settings.defaultRepeatIntervalMinutes);
   const [hour, setHour] = useState((settings.dailyBriefingTime ?? DEFAULT_SETTINGS.dailyBriefingTime).split(':')[0] ?? '07');
   const [minute, setMinute] = useState((settings.dailyBriefingTime ?? DEFAULT_SETTINGS.dailyBriefingTime).split(':')[1] ?? '00');
   const [timeError, setTimeError] = useState('');
@@ -232,13 +226,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleDone = async () => {
     if (busyRef.current) return;
-    const advanceMinutes = Number(leadTime);
-    const repeatMinutes = Number(repeatInterval);
-    if (!Number.isInteger(advanceMinutes) || advanceMinutes < 1 || advanceMinutes > 1440 ||
-        !Number.isInteger(repeatMinutes) || repeatMinutes < 1 || repeatMinutes > 1440) {
-      setMinuteError('Nhập số phút từ 1 đến 1440 cho cả hai mục.');
-      return;
-    }
     if (!/^\d{1,2}$/.test(hour) || !/^\d{1,2}$/.test(minute) || Number(hour) > 23 || Number(minute) > 59) {
       setTimeError('Nhập giờ từ 00–23, phút từ 00–59.');
       return;
@@ -254,8 +241,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       dailyBriefingTime: hour.padStart(2, '0') + ':' + minute.padStart(2, '0'),
       defaultMorningTime: morning,
       defaultAfternoonTime: afternoon,
-      defaultAdvanceNoticeMinutes: advanceMinutes,
-      defaultRepeatIntervalMinutes: repeatMinutes,
+      defaultAdvanceNoticeMinutes: leadTime,
+      defaultRepeatIntervalMinutes: repeatInterval,
       stopOnMeetingStart,
       speechVoice,
     };
@@ -265,7 +252,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (next.dailyBriefingTime === settings.dailyBriefingTime &&
           morning === (settings.defaultMorningTime ?? DEFAULT_SETTINGS.defaultMorningTime) &&
           afternoon === (settings.defaultAfternoonTime ?? DEFAULT_SETTINGS.defaultAfternoonTime) &&
-          advanceMinutes === settings.defaultAdvanceNoticeMinutes && repeatMinutes === settings.defaultRepeatIntervalMinutes &&
+          leadTime === settings.defaultAdvanceNoticeMinutes && repeatInterval === settings.defaultRepeatIntervalMinutes &&
           stopOnMeetingStart === settings.stopOnMeetingStart && speechVoice === settings.speechVoice) {
         onClose();
         return;
@@ -322,12 +309,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onChange={(value) => { const [nextHour = '', nextMinute = ''] = value.split(':'); setHour(nextHour); setMinute(nextMinute); setTimeError(''); }} />
               {timeError ? <Text accessibilityLiveRegion="polite" style={styles.error}>{timeError}</Text> : null}
               <View style={styles.divider} />
-              <MinuteOptions label="Báo trước" value={leadTime} options={[5, 10, 15, 30]}
-                onChange={(value) => { setLeadTime(value); setMinuteError(''); }} />
+              <MinuteOptions label="Báo trước" value={leadTime} options={[5, 10, 15, 30]} onChange={setLeadTime} />
               <View style={styles.divider} />
-              <MinuteOptions label="Nhắc lại mỗi" value={repeatInterval} options={[2, 5, 10]}
-                onChange={(value) => { setRepeatInterval(value); setMinuteError(''); }} />
-              {minuteError ? <Text accessibilityLiveRegion="polite" style={styles.error}>{minuteError}</Text> : null}
+              <MinuteOptions label="Nhắc lại mỗi" value={repeatInterval} options={[2, 5, 10]} onChange={setRepeatInterval} />
             </View>
 
             <Text accessibilityRole="header" style={styles.sectionTitle}>Giờ mặc định theo buổi</Text>
@@ -491,9 +475,6 @@ const styles = StyleSheet.create({
   optionSelected: { backgroundColor: '#00ADFC' },
   optionText: { color: '#64748B', fontSize: 13, fontFamily: 'Roboto',  },
   optionTextSelected: { color: '#FFFFFF' },
-  customMinuteRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 3 },
-  minuteInput: { width: 72, minHeight: 44, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1,
-    borderColor: '#CCE3EF', backgroundColor: '#FFFFFF', color: '#0A2540', fontSize: 16, fontFamily: 'Roboto', textAlign: 'center' },
   pickerBackdrop: { flex: 1, backgroundColor: 'rgba(10,25,47,0.46)', justifyContent: 'flex-end' },
   pickerSheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 32 },
   pickerHeading: { color: '#0A2540', fontSize: 20, fontFamily: 'Roboto', marginBottom: 12 },
