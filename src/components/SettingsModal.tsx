@@ -9,6 +9,7 @@ import { SpeechService } from '../services/speechService';
 import { MeetingVoice, type NotificationVoice } from '../services/meetingVoice';
 import { PrivacyPolicyContent } from './PrivacyPolicyContent';
 import { legalDocuments, type LegalDocumentId } from '../content/legal-documents';
+import { normalizeClockTime } from '../utils/clockTime';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -42,6 +43,27 @@ function MinuteOptions({ label, value, options, onChange }: {
   </View>;
 }
 
+function TimeSetting({ label, value, onChange, invalid = false }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  invalid?: boolean;
+}) {
+  const [hour = '', minute = ''] = value.split(':');
+  return <View style={styles.row}>
+    <Text style={styles.rowLabel}>{label}</Text>
+    <View style={styles.timeFields}>
+      <TextInput style={[styles.timeInput, invalid && styles.invalidInput]} value={hour}
+        onChangeText={(text) => onChange(text.replace(/\D/g, '').slice(0, 2) + ':' + minute)}
+        keyboardType="number-pad" maxLength={2} selectTextOnFocus placeholder="HH" accessibilityLabel={'Giờ ' + label.toLowerCase()} />
+      <Text style={styles.timeSeparator}>:</Text>
+      <TextInput style={[styles.timeInput, invalid && styles.invalidInput]} value={minute}
+        onChangeText={(text) => onChange(hour + ':' + text.replace(/\D/g, '').slice(0, 2))}
+        keyboardType="number-pad" maxLength={2} selectTextOnFocus placeholder="mm" accessibilityLabel={'Phút ' + label.toLowerCase()} />
+    </View>
+  </View>;
+}
+
 const documentLabels: Record<LegalDocumentId, string> = {
   privacy: 'Chính sách riêng tư',
   terms: 'Điều khoản sử dụng',
@@ -56,6 +78,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [hour, setHour] = useState((settings.dailyBriefingTime ?? DEFAULT_SETTINGS.dailyBriefingTime).split(':')[0] ?? '07');
   const [minute, setMinute] = useState((settings.dailyBriefingTime ?? DEFAULT_SETTINGS.dailyBriefingTime).split(':')[1] ?? '00');
   const [timeError, setTimeError] = useState('');
+  const [morningTime, setMorningTime] = useState(settings.defaultMorningTime ?? DEFAULT_SETTINGS.defaultMorningTime);
+  const [afternoonTime, setAfternoonTime] = useState(settings.defaultAfternoonTime ?? DEFAULT_SETTINGS.defaultAfternoonTime);
+  const [daypartTimeError, setDaypartTimeError] = useState<'morning' | 'afternoon' | null>(null);
   const [stopOnMeetingStart, setStopOnMeetingStart] = useState(settings.stopOnMeetingStart);
   const [speechVoice, setSpeechVoice] = useState(settings.speechVoice);
   const [voices, setVoices] = useState<NotificationVoice[]>([]);
@@ -152,9 +177,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setTimeError('Nhập giờ từ 00–23, phút từ 00–59.');
       return;
     }
+    const morning = normalizeClockTime(morningTime);
+    const afternoon = normalizeClockTime(afternoonTime);
+    if (!morning || !afternoon) {
+      setDaypartTimeError(!morning ? 'morning' : 'afternoon');
+      return;
+    }
     const next: AppSettings = {
       ...settings,
       dailyBriefingTime: hour.padStart(2, '0') + ':' + minute.padStart(2, '0'),
+      defaultMorningTime: morning,
+      defaultAfternoonTime: afternoon,
       defaultAdvanceNoticeMinutes: leadTime,
       defaultRepeatIntervalMinutes: repeatInterval,
       stopOnMeetingStart,
@@ -164,6 +197,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       await stopPreview();
       if (next.dailyBriefingTime === settings.dailyBriefingTime &&
+          morning === (settings.defaultMorningTime ?? DEFAULT_SETTINGS.defaultMorningTime) &&
+          afternoon === (settings.defaultAfternoonTime ?? DEFAULT_SETTINGS.defaultAfternoonTime) &&
           leadTime === settings.defaultAdvanceNoticeMinutes && repeatInterval === settings.defaultRepeatIntervalMinutes &&
           stopOnMeetingStart === settings.stopOnMeetingStart && speechVoice === settings.speechVoice) {
         onClose();
@@ -227,6 +262,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <MinuteOptions label="Báo trước" value={leadTime} options={[5, 10, 15, 30]} onChange={setLeadTime} />
               <View style={styles.divider} />
               <MinuteOptions label="Nhắc lại mỗi" value={repeatInterval} options={[2, 5, 10]} onChange={setRepeatInterval} />
+            </View>
+
+            <Text accessibilityRole="header" style={styles.sectionTitle}>GIỜ MẶC ĐỊNH THEO BUỔI</Text>
+            <View style={styles.card}>
+              <TimeSetting label="Buổi sáng" value={morningTime} invalid={daypartTimeError === 'morning'}
+                onChange={(value) => { setMorningTime(value); setDaypartTimeError(null); }} />
+              <View style={styles.divider} />
+              <TimeSetting label="Buổi chiều" value={afternoonTime} invalid={daypartTimeError === 'afternoon'}
+                onChange={(value) => { setAfternoonTime(value); setDaypartTimeError(null); }} />
+              {daypartTimeError ? <Text accessibilityLiveRegion="polite" style={styles.error}>
+                Giờ buổi {daypartTimeError === 'morning' ? 'sáng' : 'chiều'} chưa hợp lệ. Nhập giờ 00–23, phút 00–59.
+              </Text> : null}
+              <Text style={styles.hint}>Dùng khi bạn chỉ nói “sáng” hoặc “chiều” mà chưa nêu giờ cụ thể.</Text>
             </View>
 
             <Text accessibilityRole="header" style={styles.sectionTitle}>GIỌNG ĐỌC</Text>
