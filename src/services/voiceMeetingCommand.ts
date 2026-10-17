@@ -2,6 +2,7 @@ import type { Meeting } from '../types/meeting';
 import { normalizeVietnameseVoiceText } from './vietnameseNormalizer';
 import { parseVietnameseVoiceMeeting } from './nlpParser';
 import { meetingEditFields, type MeetingEditFields } from '../utils/meetingEdit';
+import { DEFAULT_SETTINGS, type DaypartTimeSettings } from '../types/settings';
 
 const verb = /^(?:thay đổi|cập nhật|điều chỉnh|đổi lại|sửa lại|sửa|đổi|dời|chuyển|lùi|hoãn|đẩy)(?!\p{L})\s*/u;
 const timePattern = /(?<![\p{L}\p{N}])(\d{1,3})\s*(?:giờ|h|:)\s*(?:(kém)\s*)?(\d{1,3})?\s*(?:phút|p)?(?![\p{L}\p{N}])/gu;
@@ -101,7 +102,8 @@ export function voiceEditCommand(input: string, meetings: Meeting[], now: Date) 
   return { text, operation, replacement, candidates, rename, reminders, error };
 }
 
-export function voiceEditFields(command: NonNullable<ReturnType<typeof voiceEditCommand>>, meeting: Meeting, now: Date): MeetingEditFields {
+export function voiceEditFields(command: NonNullable<ReturnType<typeof voiceEditCommand>>, meeting: Meeting, now: Date,
+  daypartTimes: Partial<DaypartTimeSettings> = DEFAULT_SETTINGS): MeetingEditFields {
   const fields = meetingEditFields(meeting);
   const { operation, replacement, rename, reminders, error } = command;
   if (error) throw new Error(error);
@@ -132,14 +134,14 @@ export function voiceEditFields(command: NonNullable<ReturnType<typeof voiceEdit
     if (relative && minutes !== null) next = new Date(now.getTime() + minutes * 60000);
     else {
       validateTime(replacement);
-      const parsed = parseVietnameseVoiceMeeting(replacement, now, originalDate);
+      const parsed = parseVietnameseVoiceMeeting(replacement, now, originalDate, daypartTimes);
       validateDate(replacement, parsed.datetime);
       const residual = parsed.title.toLowerCase().replace(/cuộc họp quan trọng/g, '').replace(/^\d{1,2}$/u, '').trim();
-      if (residual || (parsed.confidence.timeConfidence !== 'HIGH' && parsed.confidence.dateConfidence !== 'EXPLICIT')) {
+      if (residual || (parsed.confidence.timeConfidence !== 'HIGH' && !parsed.defaultTimePeriod && parsed.confidence.dateConfidence !== 'EXPLICIT')) {
         throw new Error('Chưa hiểu đầy đủ thời gian mới. Vui lòng nói rõ giờ hoặc ngày cần chuyển.');
       }
       next = parsed.datetime;
-      if (parsed.confidence.timeConfidence !== 'HIGH') next.setHours(originalDate.getHours(), originalDate.getMinutes());
+      if (parsed.confidence.timeConfidence !== 'HIGH' && !parsed.defaultTimePeriod) next.setHours(originalDate.getHours(), originalDate.getMinutes());
     }
   }
   if (!Number.isFinite(next.getTime())) throw new Error('Thời gian mới không hợp lệ.');

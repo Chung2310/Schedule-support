@@ -65,12 +65,12 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const editPreview = useMemo(() => {
     if (!editCommand || !editTarget) return null;
     try {
-      const fields = voiceEditFields(editCommand, editTarget, commandNow);
+      const fields = voiceEditFields(editCommand, editTarget, commandNow, settings);
       return { fields, meeting: applyMeetingEdit(editTarget, fields, commandNow), error: null };
     } catch (error) {
       return { fields: null, meeting: null, error: error instanceof Error ? error.message : 'Chưa hiểu yêu cầu sửa lịch.' };
     }
-  }, [editCommand, editTarget, commandNow]);
+  }, [editCommand, editTarget, commandNow, settings]);
 
   // Điều chỉnh thời gian nếu muốn
   const [timeOffsetMinutes, setTimeOffsetMinutes] = useState(0);
@@ -129,8 +129,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   // Bộ phân tích ngôn ngữ tự nhiên chạy trực tiếp từ lời nói người dùng
   const parsed = useMemo(() => {
     if (!transcript.trim()) return null;
-    return parseVietnameseVoiceMeeting(transcript.trim(), new Date(), selectedDate);
-  }, [transcript, selectedDate]);
+    return parseVietnameseVoiceMeeting(transcript.trim(), new Date(), selectedDate, settings);
+  }, [transcript, selectedDate, settings]);
 
   // Thời gian cuộc họp thực tế
   const effectiveMeetingDate = useMemo(() => {
@@ -425,6 +425,9 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     <View style={styles.infoValueGroup}>
                       <Text style={styles.timeBoldText}>{timeStr}</Text>
                       <Text style={styles.dateSubText}>({dateStr})</Text>
+                      {parsed?.defaultTimePeriod && timeOffsetMinutes === 0 ? <Text style={styles.dateSubText}>
+                        Giờ mặc định buổi {parsed.defaultTimePeriod === 'morning' ? 'sáng' : 'chiều'}
+                      </Text> : null}
 
                       {/* Nút chỉnh nhanh +/- 15p */}
                       <View style={styles.adjustBtns}>

@@ -1,4 +1,6 @@
 import { normalizeVietnameseVoiceText } from './vietnameseNormalizer';
+import { DEFAULT_SETTINGS, type DaypartTimeSettings } from '../types/settings';
+import { normalizeClockTime } from '../utils/clockTime';
 
 export interface ParsedMeetingResult {
   title: string;
@@ -8,6 +10,7 @@ export interface ParsedMeetingResult {
   voiceText: string;
   extractedDateStr: string;
   extractedTimeStr: string;
+  defaultTimePeriod?: 'morning' | 'afternoon';
   confidence: {
     overall: number; // 0.0 - 1.0
     timeConfidence: 'HIGH' | 'MEDIUM' | 'INFERRED';
@@ -36,7 +39,8 @@ const DAY_OF_WEEK_MAP: Record<string, number> = {
 export function parseVietnameseVoiceMeeting(
   input: string,
   now: Date = new Date(),
-  selectedDate?: Date
+  selectedDate?: Date,
+  daypartTimes: Partial<DaypartTimeSettings> = DEFAULT_SETTINGS,
 ): ParsedMeetingResult {
   // BƯỚC 1: Chuẩn hóa số bằng chữ và tiếng lóng qua bộ Normalizer
   const normalizedText = normalizeVietnameseVoiceText(input);
@@ -58,8 +62,10 @@ export function parseVietnameseVoiceMeeting(
   let targetYear = now.getFullYear();
   let targetMonth = now.getMonth();
   let targetDate = now.getDate();
-  let targetHours = 9; // Giờ mặc định
-  let targetMinutes = 0;
+  const morningTime = normalizeClockTime(daypartTimes.defaultMorningTime) ?? DEFAULT_SETTINGS.defaultMorningTime;
+  const afternoonTime = normalizeClockTime(daypartTimes.defaultAfternoonTime) ?? DEFAULT_SETTINGS.defaultAfternoonTime;
+  let [targetHours, targetMinutes] = morningTime.split(':').map(Number);
+  let defaultTimePeriod: ParsedMeetingResult['defaultTimePeriod'];
 
   let timeConfidence: 'HIGH' | 'MEDIUM' | 'INFERRED' = 'INFERRED';
   let dateConfidence: ParsedMeetingResult['confidence']['dateConfidence'] = 'TODAY_DEFAULT';
@@ -177,6 +183,18 @@ export function parseVietnameseVoiceMeeting(
     extractedTimeStr = `${relativeDatetime.getHours()} giờ ${relativeDatetime.getMinutes()} phút`;
   }
 
+  // An explicit clock or elapsed duration always wins over a daypart default.
+  if (!hourMinMatch && !relativeDatetime) {
+    const daypart = lower.match(/(?<!\p{L})(?:buổi\s+)?(sáng|chiều)(?!\p{L})/u)?.[1];
+    if (daypart) {
+      defaultTimePeriod = daypart === 'sáng' ? 'morning' : 'afternoon';
+      const time = defaultTimePeriod === 'morning' ? morningTime : afternoonTime;
+      [targetHours, targetMinutes] = time.split(':').map(Number);
+      timeConfidence = 'MEDIUM';
+      extractedTimeStr = time;
+    }
+  }
+
   // Calendar selection is only a fallback. Spoken relative dates always use
   // the real device clock, never the day the user happens to be viewing.
   if (dateConfidence !== 'EXPLICIT' && selectedDate) {
@@ -257,6 +275,7 @@ export function parseVietnameseVoiceMeeting(
     voiceText,
     extractedDateStr,
     extractedTimeStr: extractedTimeStr || `${hourDisplay}:${minDisplay.toString().padStart(2, '0')}`,
+    defaultTimePeriod,
     confidence: {
       overall: Math.min(1.0, overallScore),
       timeConfidence,
