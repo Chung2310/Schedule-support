@@ -56,3 +56,68 @@ test('long titles produce a bounded voice preview without altering stored meetin
   assert.ok(result.endsWith('Xem thêm trong lịch.'));
   assert.equal(meetingVoiceText(meeting), '10 giờ. kinh doanh');
 });
+
+test('iOS voice preview reports a missing or outdated native module instead of substituting a chime', async () => {
+  await assert.rejects(load(null, 'ios').MeetingVoice.prepareTextOrThrow('Nhắc lịch', settings), /TestFlight/);
+  await assert.rejects(load({ prepare: async () => ({}) }, 'ios').MeetingVoice.prepareTextOrThrow('Nhắc lịch', settings), /TestFlight/);
+});
+
+for (const [code, message, expected] of [
+  ['VOICE_UNAVAILABLE', 'No installed Vietnamese voice', /Chưa có giọng tiếng Việt/],
+  ['INVALID_REQUEST', 'Another request is in progress', /đang chuẩn bị/],
+  ['VOICE_FAILED', 'Speech generation timed out', /quá lâu/],
+  ['VOICE_FAILED', 'Voice notification must be shorter than 30 seconds', /dài quá giới hạn/],
+  ['VOICE_FAILED', 'Speech synthesis produced no audio', /chưa tạo được tệp âm thanh/],
+]) {
+  test(`voice preview explains ${code}: ${message}`, async () => {
+    const { MeetingVoice } = load({
+      prepare: async () => { throw Object.assign(new Error(message), { code }); },
+      scheduleIOS: async () => {},
+    }, 'ios');
+    await assert.rejects(MeetingVoice.prepareTextOrThrow('Nhắc lịch', settings), expected);
+    assert.equal(await MeetingVoice.prepareText('Nhắc lịch', settings), null);
+  });
+}
+
+test('invalid native assets cannot be reported as a successful voice preview', async () => {
+  for (const [platform, asset] of [['ios', {}], ['android', { sound: 'voice.wav' }]]) {
+    const { MeetingVoice } = load({ prepare: async () => asset, scheduleIOS: async () => {} }, platform);
+    await assert.rejects(MeetingVoice.prepareTextOrThrow('Nhắc lịch', settings), /chưa tạo được tệp âm thanh/);
+  }
+});
+
+for (const [code, expected] of [['SOUND_UNAVAILABLE', /chưa đọc được tệp/], ['SCHEDULE_EXPIRED', /Giờ nhắc đã qua/]]) {
+  test(`iOS voice scheduling explains ${code}`, async () => {
+    const { MeetingVoice } = load({ scheduleIOS: async () => { throw { code }; } }, 'ios');
+    await assert.rejects(MeetingVoice.scheduleIOS({}), expected);
+  });
+}
+
+test('Android voice errors use Android installation and offline TTS instructions', async () => {
+  await assert.rejects(load(null).MeetingVoice.prepareTextOrThrow('Nhắc lịch', settings), error => {
+    assert.match(error.message, /Android/);
+    assert.doesNotMatch(error.message, /TestFlight/);
+    return true;
+  });
+  const { MeetingVoice } = load({ prepare: async () => {
+    throw { code: 'VOICE_FAILED', message: 'No installed offline Vietnamese voice' };
+  } });
+  await assert.rejects(MeetingVoice.prepareTextOrThrow('Nhắc lịch', settings), error => {
+    assert.match(error.message, /chuyển văn bản thành giọng nói của Android/);
+    assert.doesNotMatch(error.message, /Trợ năng/);
+    return true;
+  });
+});
+
+for (const platform of ['ios', 'android']) {
+  test(`${platform}: a removed selected voice is reported without claiming to use that voice`, async () => {
+    const { MeetingVoice } = load({
+      prepare: async () => { throw {
+        code: platform === 'ios' ? 'VOICE_NOT_FOUND' : 'VOICE_FAILED',
+        message: 'Selected Vietnamese voice is not installed',
+      }; },
+      scheduleIOS: async () => {},
+    }, platform);
+    await assert.rejects(MeetingVoice.prepareTextOrThrow('Nhắc lịch', settings), /chọn lại giọng đọc/);
+  });
+}

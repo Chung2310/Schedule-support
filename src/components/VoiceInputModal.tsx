@@ -31,7 +31,7 @@ interface VoiceInputModalProps {
     advanceNoticeMinutes: number;
     repeatIntervalMinutes: number;
     voiceText: string;
-  }) => void;
+  }) => Promise<void>;
   initialText?: string;
   selectedDate: Date;
   settings: AppSettings;
@@ -255,13 +255,23 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
       effectiveMeetingDate.getMinutes() > 0 ? ` ${effectiveMeetingDate.getMinutes()} phút` : ''
     }. ${effectiveTitle}`;
 
-    onSaveMeeting({
-      title: effectiveTitle,
-      meetingTime: effectiveMeetingDate,
-      advanceNoticeMinutes: settings.defaultAdvanceNoticeMinutes || 15,
-      repeatIntervalMinutes: settings.defaultRepeatIntervalMinutes || 5,
-      voiceText: voiceSummary,
-    });
+    savingRef.current = true;
+    setSaving(true);
+    setErrorMessage(null);
+    try {
+      await onSaveMeeting({
+        title: effectiveTitle,
+        meetingTime: effectiveMeetingDate,
+        advanceNoticeMinutes: settings.defaultAdvanceNoticeMinutes || 15,
+        repeatIntervalMinutes: settings.defaultRepeatIntervalMinutes || 5,
+        voiceText: voiceSummary,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Chưa lưu được lịch hẹn.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const timeStr = effectiveMeetingDate.toLocaleTimeString('vi-VN', {
@@ -440,9 +450,10 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                 activeOpacity={0.85}
               >
                 <Text style={styles.confirmBtnText}>
-                  {saving ? 'Đang lưu…' : editCommand ? 'Lưu thay đổi' : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
+                  {saving ? 'Đang chuẩn bị giọng đọc…' : editCommand ? 'Lưu thay đổi' : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
                 </Text>
               </TouchableOpacity>
+              {saving ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để bật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
               </ScrollView>
             </Animated.View>
           </KeyboardAvoidingView>
@@ -453,6 +464,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  savingHint: { color: '#64748B', fontSize: 12, lineHeight: 18, marginTop: 10, textAlign: 'center' },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.45)',

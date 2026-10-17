@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Meeting } from './src/types/meeting';
 import { AppSettings, DEFAULT_SETTINGS } from './src/types/settings';
 import { StorageService } from './src/services/storage';
+import { TodayWidgets } from './src/services/todayWidgets';
 import { AlarmManager } from './src/services/alarmManager';
 import { isSameDay } from './src/utils/dateUtils';
 
@@ -31,6 +32,7 @@ import { applyMeetingEdit, MeetingEditFields } from './src/utils/meetingEdit';
 
 export default function App() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [isCalendarLoaded, setIsCalendarLoaded] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
   // Chế độ xem: 'YEAR' (Xem cả năm) | 'MONTH' (Mặc định: Lịch cả tháng) | 'DAY' (Chi tiết dãy giờ theo ngày)
@@ -57,10 +59,15 @@ export default function App() {
 
     const loadedMeetings = await StorageService.getMeetings();
     setMeetings(loadedMeetings);
+    setIsCalendarLoaded(true);
 
     await AlarmManager.syncNotifications(loadedSettings);
     AlarmManager.resumeForegroundReminders(loadedMeetings, loadedSettings);
   }, []);
+
+  useEffect(() => {
+    if (isCalendarLoaded) void TodayWidgets.sync(meetings);
+  }, [meetings, isCalendarLoaded]);
 
   useEffect(() => {
     let disposed = false;
@@ -175,7 +182,6 @@ export default function App() {
       Alert.alert('Chưa lưu được lịch', 'Không thể ghi dữ liệu trên thiết bị. Bạn hãy kiểm tra dung lượng trống và thử lại.');
       return;
     }
-    setIsVoiceModalOpen(false);
     setMeetings(updated);
 
     // Chuyển ngày được chọn sang ngày của cuộc hẹn vừa thêm & chuyển sang xem chi tiết ngày đó
@@ -184,6 +190,7 @@ export default function App() {
 
     // Kích hoạt thông báo nền hệ điều hành
     const notificationsScheduled = await AlarmManager.syncNotifications(settings);
+    setIsVoiceModalOpen(false);
     if (!notificationsScheduled && Platform.OS !== 'web') {
       Alert.alert('Đã lưu lịch hẹn', 'Chưa thể bật thông báo nhắc lịch. Hãy kiểm tra quyền thông báo của ứng dụng trong Cài đặt thiết bị.');
     } else if (AlarmManager.voiceFallbackMeetingIds.has(newMeeting.id)) {
@@ -209,13 +216,13 @@ export default function App() {
       throw new Error(error instanceof Error ? error.message : 'Chưa lưu được thay đổi. Vui lòng thử lại.');
     }
     setMeetings(updated);
-    setEditingMeeting(null);
-    if (voiceTarget) setIsVoiceModalOpen(false);
     setSelectedDate(new Date(edited.meetingTime));
     setViewMode('DAY');
     setActiveAlarmMeeting(previous => previous?.id === edited.id ? null : previous);
     await AlarmManager.cancelAlarm(edited.id).catch(error => console.warn('Could not cancel old meeting reminders:', error));
     const scheduled = await AlarmManager.syncNotifications(settings);
+    setEditingMeeting(null);
+    if (voiceTarget) setIsVoiceModalOpen(false);
     AlarmManager.resumeForegroundReminders(updated, settings);
     if (!scheduled && Platform.OS !== 'web') {
       Alert.alert('Đã lưu thay đổi', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
@@ -265,11 +272,16 @@ export default function App() {
       Alert.alert('Chưa lưu được cài đặt', 'Không thể ghi dữ liệu trên thiết bị. Bạn hãy thử lại.');
       return;
     }
-    setIsSettingsModalOpen(false);
     setSettings(newSettings);
-    await AlarmManager.syncNotifications(newSettings);
+    const scheduled = await AlarmManager.syncNotifications(newSettings);
     AlarmManager.pauseForegroundReminders();
     AlarmManager.resumeForegroundReminders(await StorageService.getMeetings(), newSettings);
+    setIsSettingsModalOpen(false);
+    if (!scheduled) {
+      Alert.alert('Đã lưu cài đặt', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
+    } else if (AlarmManager.voiceFallbackMeetingIds.size > 0) {
+      Alert.alert('Đã lưu cài đặt', 'Một số lịch vẫn dùng chuông vì chưa tạo được giọng đọc. Hãy thử giọng đọc khi khóa màn hình trong Cài đặt để kiểm tra.');
+    }
   };
 
   // Danh sách cuộc họp của ngày đang được chọn
@@ -401,8 +413,9 @@ export default function App() {
         settings={settings}
         onClose={() => setIsSettingsModalOpen(false)}
         onSave={handleSaveSettings}
-        onTestNotification={() =>
-          AlarmManager.sendInstantDailyBriefingNotification(meetings)
+        onRefreshWidget={isCalendarLoaded ? () => TodayWidgets.sync(meetings) : undefined}
+        onTestNotification={(previewSettings) =>
+          AlarmManager.scheduleVoicePreview(previewSettings)
         }
       /> : null}
     </SafeAreaView>

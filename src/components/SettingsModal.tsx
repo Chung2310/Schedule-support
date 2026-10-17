@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   TextInput,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppSettings, DEFAULT_SETTINGS } from '../types/settings';
@@ -21,8 +22,9 @@ interface SettingsModalProps {
   visible: boolean;
   settings: AppSettings;
   onClose: () => void;
-  onSave: (newSettings: AppSettings) => void;
-  onTestNotification?: () => void;
+  onSave: (newSettings: AppSettings) => Promise<void>;
+  onTestNotification?: (settings: AppSettings) => Promise<void>;
+  onRefreshWidget?: () => Promise<boolean>;
 }
 
 const PRESET_LEAD_TIMES = [5, 10, 15, 30];
@@ -33,6 +35,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onClose,
   onSave,
+  onTestNotification,
+  onRefreshWidget,
 }) => {
   const [leadTime, setLeadTime] = useState(settings.defaultAdvanceNoticeMinutes ?? 15);
   const [repeatInterval, setRepeatInterval] = useState(settings.defaultRepeatIntervalMinutes ?? 5);
@@ -42,10 +46,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [stopOnMeetingStart, setStopOnMeetingStart] = useState(settings.stopOnMeetingStart ?? true);
   const [hapticEnabled, setHapticEnabled] = useState(settings.hapticEnabled ?? true);
   const [isPlayingTest, setIsPlayingTest] = useState(false);
+  const [isPreparingBackgroundTest, setIsPreparingBackgroundTest] = useState(false);
+  const preparingBackgroundTestRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
   const [speechVoice, setSpeechVoice] = useState(settings.speechVoice);
   const [availableVoices, setAvailableVoices] = useState<NotificationVoice[]>([]);
   const [isLoadingVoices, setIsLoadingVoices] = useState(true);
   const [legalDocument, setLegalDocument] = useState<LegalDocumentId | null>(null);
+  const [isRefreshingWidget, setIsRefreshingWidget] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -81,7 +90,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     });
   };
 
-  const handleDone = () => {
+  const handleBackgroundVoiceTest = async () => {
+    if (!onTestNotification || preparingBackgroundTestRef.current || savingRef.current) return;
+    preparingBackgroundTestRef.current = true;
+    setIsPreparingBackgroundTest(true);
+    try {
+      await SpeechService.stop();
+      setIsPlayingTest(false);
+      await onTestNotification({ ...settings, speechVoice });
+      Alert.alert('Đã đặt thông báo thử sau 15 giây',
+        'Bây giờ hãy về màn hình chính hoặc khóa máy. Bật chuông, tăng âm lượng chuông và tắt chế độ Tập trung để nghe thử.');
+    } catch (error) {
+      Alert.alert('Chưa bật được giọng đọc nền', error instanceof Error ? error.message : 'Không đặt được thông báo thử. Hãy thử lại.');
+    } finally {
+      preparingBackgroundTestRef.current = false;
+      setIsPreparingBackgroundTest(false);
+    }
+  };
+
+  const handleDone = async () => {
+    if (savingRef.current || preparingBackgroundTestRef.current) return;
     const hour = Number(dailyBriefingHour);
     const minute = Number(dailyBriefingMinute);
     if (!/^\d{1,2}$/.test(dailyBriefingHour) || !/^\d{1,2}$/.test(dailyBriefingMinute) ||
@@ -89,15 +117,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setDailyBriefingTimeError('Giờ từ 0 đến 23 và phút từ 0 đến 59.');
       return;
     }
-    onSave({
-      ...settings,
-      dailyBriefingTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-      defaultAdvanceNoticeMinutes: leadTime,
-      defaultRepeatIntervalMinutes: repeatInterval,
-      speechVoice,
-      stopOnMeetingStart,
-      hapticEnabled,
-    });
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      await onSave({
+        ...settings,
+        dailyBriefingTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+        defaultAdvanceNoticeMinutes: leadTime,
+        defaultRepeatIntervalMinutes: repeatInterval,
+        speechVoice,
+        stopOnMeetingStart,
+        hapticEnabled,
+      });
+    } catch {
+      Alert.alert('Chưa cập nhật xong nhắc lịch', 'Hãy giữ ứng dụng mở và thử lưu lại cài đặt.');
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   const handleReset = () => {
@@ -112,7 +149,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={legalDocument ? () => setLegalDocument(null) : onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={() => {
+      if (savingRef.current || preparingBackgroundTestRef.current) return;
+      if (legalDocument) setLegalDocument(null);
+      else onClose();
+    }}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           {legalDocument ? <PrivacyPolicyContent key={legalDocument} document={legalDocument} onBack={() => setLegalDocument(null)} /> : <>
@@ -121,15 +162,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <Text style={styles.title}>Cài Đặt</Text>
             <TouchableOpacity
               onPress={handleDone}
+              disabled={isSaving || isPreparingBackgroundTest}
               style={styles.doneBtn}
               activeOpacity={0.7}
               accessibilityLabel="Xong"
             >
-              <Text style={styles.doneBtnText}>Xong</Text>
+              <Text style={styles.doneBtnText}>{isSaving ? 'Đang lưu…' : 'Xong'}</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent}>
+          {isSaving ? <Text style={styles.voiceStatus}>Đang chuẩn bị giọng đọc. Giữ ứng dụng mở đến khi hoàn tất.</Text> : null}
+          <ScrollView pointerEvents={isSaving ? 'none' : 'auto'} style={styles.settingsScroll} contentContainerStyle={styles.settingsContent}>
           {/* Group 1: Nhắc lịch & Báo thức */}
           <View style={styles.groupCard}>
             <View style={styles.settingRow}>
@@ -302,6 +345,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </TouchableOpacity>
             </View>
             <Text style={styles.voiceHint}>Chọn giọng tiếng Việt. Bạn có thể nghe thử trước khi lưu.</Text>
+            {onTestNotification && Platform.OS !== 'web' ? <>
+              <TouchableOpacity
+                style={styles.backgroundTestButton}
+                onPress={() => { void handleBackgroundVoiceTest(); }}
+                disabled={isPreparingBackgroundTest}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isPreparingBackgroundTest, busy: isPreparingBackgroundTest }}
+              >
+                <Ionicons name="notifications-outline" size={17} color="#0A2540" />
+                <Text style={styles.backgroundTestText}>
+                  {isPreparingBackgroundTest ? 'Đang chuẩn bị giọng đọc…' : 'Thử giọng đọc khi khóa màn hình'}
+                </Text>
+              </TouchableOpacity>
+              <Text style={styles.voiceHint}>Đợi báo đã đặt lịch, rồi ra ngoài app hoặc khóa máy. Thông báo sẽ phát sau 15 giây.</Text>
+            </> : null}
             {isLoadingVoices ? (
               <Text style={styles.voiceStatus}>Đang tải danh sách giọng...</Text>
             ) : (
@@ -358,14 +416,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 })}
                 {availableVoices.length === 0 && (
                   <Text style={styles.voiceStatus}>
-                    Chưa tìm thấy giọng tiếng Việt đã cài trên thiết bị.
+                    {Platform.OS === 'android'
+                      ? 'Chưa tìm thấy giọng tiếng Việt ngoại tuyến. Hãy tải giọng trong cài đặt chuyển văn bản thành giọng nói của Android.'
+                      : 'Chưa tìm thấy giọng tiếng Việt đã cài trên thiết bị.'}
                   </Text>
                 )}
+                {speechVoice && !availableVoices.some((voice) => voice.identifier === speechVoice) ? (
+                  <Text style={styles.voiceStatus}>Giọng đã lưu không còn trong danh sách. Hãy chọn lại giọng hoặc chọn Mặc định.</Text>
+                ) : null}
               </View>
             )}
           </View>
 
           <Text style={styles.note}>Giọng đã chọn được dùng khi ứng dụng mở và trong thông báo nếu thiết bị hỗ trợ. Nếu không, thiết bị sẽ phát âm báo mặc định.</Text>
+          {Platform.OS === 'ios' ? <View style={styles.groupCard}>
+            <View style={styles.settingRow}>
+              <View style={styles.rowLabelGroup}>
+                <Ionicons name="calendar-outline" size={20} color="#0A2540" />
+                <Text style={styles.rowLabel}>Widget Lịch hôm nay</Text>
+              </View>
+            </View>
+            <Text style={styles.voiceHint}>Màn hình chính: nhấn giữ chỗ trống → Sửa → Thêm tiện ích → iGen Check → chọn kích thước.</Text>
+            <Text style={styles.voiceHint}>Màn hình khóa: nhấn giữ → Tùy chỉnh → Màn hình khóa → Thêm tiện ích → iGen Check. Bạn cũng có thể thêm lịch vào dòng phía trên đồng hồ.</Text>
+            <Text style={styles.voiceHint}>Widget chỉ hiện lịch trong ngày. Lịch sửa trong app sẽ được gửi sang widget; iOS quyết định thời điểm hiển thị cập nhật. Nội dung lịch có thể xuất hiện trên màn hình khóa khi bạn thêm widget.</Text>
+            {onRefreshWidget ? <TouchableOpacity
+              style={styles.settingRow}
+              accessibilityRole="button"
+              disabled={isRefreshingWidget}
+              onPress={async () => {
+                if (isRefreshingWidget) return;
+                setIsRefreshingWidget(true);
+                try {
+                  const updated = await onRefreshWidget();
+                  Alert.alert(updated ? 'Đã gửi lịch sang widget' : 'Chưa cập nhật được widget', updated
+                    ? 'iOS sẽ làm mới tiện ích. Nếu chưa thêm, hãy chọn iGen Check trong danh sách tiện ích.'
+                    : 'Hãy dùng bản cài iOS mới có hỗ trợ widget rồi thử lại.');
+                } catch {
+                  Alert.alert('Chưa cập nhật được widget', 'Hãy mở lại ứng dụng và thử lại.');
+                } finally {
+                  setIsRefreshingWidget(false);
+                }
+              }}
+            >
+              <Text style={styles.rowLabel}>{isRefreshingWidget ? 'Đang cập nhật…' : 'Cập nhật widget'}</Text>
+              <Ionicons name="refresh-outline" size={18} color="#0A2540" />
+            </TouchableOpacity> : null}
+          </View> : null}
           {(Object.keys(legalDocuments) as LegalDocumentId[]).map((id) => (
           <TouchableOpacity key={id} accessibilityRole="button" onPress={() => setLegalDocument(id)} style={styles.privacyButton}>
             <Ionicons name="shield-checkmark-outline" size={18} color="#0A2540" />
@@ -545,6 +641,14 @@ const styles = StyleSheet.create({
     marginTop: -2,
     marginBottom: 6,
   },
+  backgroundTestButton: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+  },
+  backgroundTestText: { flex: 1, color: '#0A2540', fontSize: 13, fontWeight: '600' },
   voiceList: {
     paddingBottom: 4,
   },

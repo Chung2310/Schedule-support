@@ -69,4 +69,16 @@ if (missing.length) {
   process.exit(1);
 }
 
-console.log(`iOS release identity is correct; generated Info.plist contains all ${required.length} required privacy purpose strings.`);
+const groupIdentifier = 'group.com.igen.schedule';
+const groups = config.ios?.entitlements?.['com.apple.security.application-groups'];
+const widget = config.extra?.eas?.build?.experimental?.ios?.appExtensions?.find(
+  (extension) => extension.targetName === 'ExpoWidgetsTarget'
+);
+if (!groups?.includes(groupIdentifier) || infoPlist.ExpoWidgetsAppGroupIdentifier !== groupIdentifier ||
+    widget?.bundleIdentifier !== 'com.igen.schedule.widgets' ||
+    !widget?.entitlements?.['com.apple.security.application-groups']?.includes(groupIdentifier)) {
+  console.error('Today widget requires matching app/extension App Groups and EAS extension signing metadata. See IOS_BUILD_GITHUB_ACTIONS.md#widget-ios.');
+  process.exit(1);
+}
+
+console.log(`iOS release identity is correct; generated Info.plist contains all ${required.length} required privacy purpose strings; today widget App Group and extension metadata match.`);

@@ -1,6 +1,8 @@
 # Build IPA production trên GitHub macOS và upload tự động lên Apple
 
-Cập nhật: **16/10/2026**. Dự án: **iGen Check — Expo SDK 57**.
+Cập nhật: **17/10/2026**. Dự án: **iGen Check — Expo SDK 57**.
+
+> Bản có widget cần chuẩn bị thêm App Group và provisioning profile của extension **trước lần build production đầu tiên**. Xem [Widget iOS](#widget-ios).
 
 ## 1. Cách build đã triển khai trong repo
 
@@ -195,3 +197,69 @@ Nguồn: [SDK 57](https://docs.expo.dev/versions/v57.0.0/), [local build limitat
 Runner tiêu chuẩn cho repo public miễn phí theo chính sách GitHub hiện hành. Repo private dùng hạn mức Actions; artifact có hạn mức lưu trữ riêng. Xem [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
 Workflow và scripts đã được sửa trong repo. Các kiểm tra mã nguồn chạy được trên Windows; biên dịch Xcode và kiểm tra chữ ký thực tế phải được xác nhận ở lần chạy production trên GitHub macOS. Không có cloud build nào được khởi tạo trong quá trình chỉnh sửa local.
+
+<a id="widget-ios"></a>
+
+## 10. Widget iOS — Lịch hôm nay
+
+### Phạm vi đã cấu hình
+
+- Màn hình chính: nhỏ (lịch kế tiếp), vừa (tối đa 2 lịch), lớn (tối đa 6 lịch).
+- Màn hình khóa: ô chữ nhật và dòng chữ phía trên đồng hồ, hiển thị lịch kế tiếp trong ngày.
+- Lịch đã qua giờ được làm nhạt trên bản danh sách. Bấm “Đã nhớ” chỉ dừng nhắc, không xóa lịch khỏi widget.
+- Nội dung lấy từ lịch lưu cục bộ. Không cần server, APNs hay API key riêng cho widget.
+- Android chưa có widget trong lần triển khai này; plugin Android được tắt rõ ràng.
+
+Widget dùng `expo-widgets` và giao diện SwiftUI từ `@expo/ui`, đúng SDK 57. Plugin sinh extension khi prebuild; không sửa thư mục `ios/` bằng tay. Đây là extension native, nên cần **IPA mới**; bản TestFlight cũ và Expo Go không có widget.
+
+### Chuẩn bị quyền ký một lần trước khi merge production
+
+| Thành phần | Giá trị |
+| --- | --- |
+| App chính | `com.igen.schedule` |
+| Widget extension | `com.igen.schedule.widgets` |
+| Tên target extension | `ExpoWidgetsTarget` |
+| App Group dùng chung | `group.com.igen.schedule` |
+| Apple Team | `VP77TD9A77` — IGEN TECHNOLOGY |
+
+1. Mở Apple Developer → **Certificates, Identifiers & Profiles**, chọn đúng team IGEN TECHNOLOGY.
+2. Trong **Identifiers**, đăng ký App Group `group.com.igen.schedule` nếu chưa có.
+3. Chọn App ID `com.igen.schedule`, bật **App Groups**, chọn group trên rồi lưu.
+4. Đăng ký App ID kiểu Explicit `com.igen.schedule.widgets`, bật **App Groups** và chọn cùng group.
+5. Tạo lại **App Store distribution provisioning profile cho app chính** sau khi bật App Groups. Tạo profile riêng cho widget extension. Dùng Apple Distribution Certificate còn hạn của team hiện tại; không cần tạo certificate mới nếu đã có private key trên EAS.
+6. Lưu cả hai profile vào credentials của project `@igen-technology/schedule` trên EAS. Có thể thực hiện từ Windows bằng lệnh dưới và đăng nhập Apple khi được hỏi. Nếu CLI hỏi chọn target, xử lý cả app chính và `ExpoWidgetsTarget`:
+
+   ```powershell
+   npx eas-cli@latest credentials:configure-build --platform ios --profile production
+   ```
+
+   Nếu CLI vẫn giữ profile cũ, mở trình quản lý credentials để thay provisioning profile đúng target, hoặc upload profile đã tạo trên Apple Developer:
+
+   ```powershell
+   npx eas-cli@latest credentials --platform ios
+   ```
+
+   Mỗi profile phải có entitlement `com.apple.security.application-groups` chứa `group.com.igen.schedule`. Không dùng profile `com.igen.3s` hoặc profile của app chính cho extension.
+
+Lệnh quản lý credentials không khởi tạo Cloud Build và không dùng lượt EAS Cloud Build. Expo token xác thực tài khoản Expo; thao tác cấp App Group cần quyền Apple Developer của team. Không tạo app mới trên App Store Connect cho extension; vẫn upload vào app ID `6823442026`.
+
+**GitHub không cần thêm secret hay variable cho widget.** Workflow vẫn chỉ build IPA trên `production` bằng GitHub macOS, dùng credentials remote. Vì build có `--non-interactive --freeze-credentials`, CI không thể tự đăng nhập Apple hoặc tạo profile mới. Hoàn tất các bước ký trên trước khi chạy release đầu tiên có widget.
+
+Trước khi upload, script kiểm tra IPA bắt buộc phải có extension widget nhúng trong app, đúng bundle ID, cùng version/build với app chính, đúng Apple Team, App Group trong cả chữ ký lẫn hai provisioning profile. Nếu thiếu, job dừng trước upload. `build-info.json` và summary của Actions có thêm mục widget khi đạt.
+
+### Cập nhật dữ liệu và chuyển ngày
+
+App gửi timeline sang App Group khi đọc dữ liệu, thêm, sửa hoặc xóa lịch; khi trở lại app sẽ đọc lại lịch và gửi lại timeline. Có nút **Cài đặt → Cập nhật widget** để yêu cầu cập nhật thủ công.
+
+Timeline có mốc cho ngày chứa lịch, sau phút bắt đầu mỗi lịch và nửa đêm tiếp theo. Các ngày có lịch tương lai đã lưu được chuẩn bị trước, không cần app chạy nền liên tục. Ngày không có lịch hiển thị trạng thái trống; entry cuối không giữ ngày tháng cố định để tránh hiển thị ngày cũ mãi mãi. Widget không lấy lịch của ngày người dùng đang chọn trong app, mà lấy ngày hiện tại trên thiết bị lúc đồng bộ.
+
+iOS quản lý thời điểm render và giới hạn tần suất làm mới; không cam kết cập nhật đúng từng giây tại nửa đêm hoặc ngay sau khi lưu. Khi đổi múi giờ, mở lại app để tạo timeline theo múi giờ mới. Nội dung có `privacySensitive` để iOS có thể che khi áp dụng chế độ bảo vệ nội dung, nhưng việc thêm widget vẫn có thể làm lộ tên lịch trên màn hình khóa theo cài đặt thiết bị.
+
+### Sau khi có bản TestFlight mới
+
+1. Mở app một lần để lịch và giao diện widget được ghi vào vùng dùng chung.
+2. Màn hình chính: nhấn giữ chỗ trống → Sửa/Thêm tiện ích → **iGen Check → Lịch hôm nay** → chọn kích thước.
+3. Màn hình khóa: nhấn giữ → Tùy chỉnh → Màn hình khóa → thêm widget iGen Check vào vùng phù hợp.
+4. Có thể đối chiếu lịch hôm nay, thêm/sửa/xóa lịch, ngày không có lịch, đổi ngày và chế độ sáng/tối trên iPhone thực tế. Từ Windows chỉ xác nhận được mã nguồn và cấu hình; cần lần build macOS để xác nhận extension biên dịch, ký và được nhúng vào IPA.
+
+Nguồn: [Expo Widgets SDK 57](https://docs.expo.dev/versions/v57.0.0/sdk/widgets/), [iOS App Extensions](https://docs.expo.dev/build-reference/app-extensions/), [iOS capabilities](https://docs.expo.dev/build-reference/ios-capabilities/), [lệnh quản lý credentials](https://docs.expo.dev/eas/cli/#eas-credentialsconfigure-build).

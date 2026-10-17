@@ -39,11 +39,39 @@
         {
           "icon": "./assets/notification-icon.png",
           "color": "#6366F1",
-          "sounds": ["./assets/meeting_reminder.wav"]
+          "sounds": [
+            "./assets/meeting_reminder.wav"
+          ]
         }
       ],
       "expo-sqlite",
-      "expo-speech-recognition"
+      "expo-speech-recognition",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "com.igen.schedule.widgets",
+          "groupIdentifier": "group.com.igen.schedule",
+          "enablePushNotifications": false,
+          "enableAndroid": false,
+          "widgets": [
+            {
+              "name": "TodayScheduleWidget",
+              "displayName": "Lịch hôm nay",
+              "description": "Lịch hẹn trong ngày và cuộc hẹn kế tiếp của bạn.",
+              "ios": {
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium",
+                  "systemLarge",
+                  "accessoryRectangular",
+                  "accessoryInline"
+                ]
+              },
+              "android": null
+            }
+          ]
+        }
+      ]
     ],
     "extra": {
       "eas": {
