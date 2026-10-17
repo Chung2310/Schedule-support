@@ -140,7 +140,7 @@ export function parseVietnameseVoiceMeeting(
       targetYear = d.getFullYear();
       dateConfidence = 'EXPLICIT';
       extractedDateStr = 'Ngày mốt';
-    } else if (lower.includes('ngày mai') || lower.includes('sáng mai') || lower.includes('chiều mai') || lower.includes('tối mai')) {
+    } else if (lower.includes('ngày mai') || lower.includes('sáng mai') || lower.includes('trưa mai') || lower.includes('chiều mai') || lower.includes('tối mai')) {
       const d = new Date(now);
       d.setDate(d.getDate() + 1);
       targetDate = d.getDate();
@@ -166,7 +166,10 @@ export function parseVietnameseVoiceMeeting(
     const after = lower.slice((hourMinMatch.index ?? 0) + hourMinMatch[0].length);
     const period = after.match(/^\s*(?:buổi\s*)?(sáng|trưa|chiều|tối|đêm)(?!\p{L})/u)?.[1]
       ?? before.match(/(sáng|trưa|chiều|tối|đêm)(?:\s+(?:nay|mai))?\s*(?:lúc\s*)?$/u)?.[1];
-    if (period && ['chiều', 'tối', 'trưa'].includes(period) && h < 12) h += 12;
+    if (period && ['chiều', 'tối'].includes(period) && h < 12) h += 12;
+    // Noon spans late morning and early afternoon: 11 stays 11, 12 stays 12,
+    // while a small 12-hour clock such as "1 giờ trưa" means 13:00.
+    if (period === 'trưa' && h >= 1 && h < 6) h += 12;
     if ((period === 'sáng' || period === 'đêm') && h === 12) h = 0;
     if (period === 'đêm' && h >= 6 && h < 12) h += 12;
     const totalMinutes = (h * 60 + (hourMinMatch[2] ? -m : m) + 1440) % 1440;
