@@ -68,6 +68,8 @@ jobs:
       ipa-artifact-id: ${{ steps.ipa-artifact.outputs.artifact-id }}
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_APPLE_TEAM_ID: VP77TD9A77
+      EXPO_APPLE_TEAM_TYPE: COMPANY_OR_ORGANIZATION
       ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
       EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
       EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
@@ -134,6 +136,8 @@ jobs:
       actions: read
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_APPLE_TEAM_ID: VP77TD9A77
+      EXPO_APPLE_TEAM_TYPE: COMPANY_OR_ORGANIZATION
       ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
     steps:
       - name: Check out production source

@@ -36,6 +36,7 @@ const expected = {
   owner: 'igen-technology',
   slug: 'schedule',
   bundleIdentifier: 'com.igen.schedule',
+  appleTeamId: 'VP77TD9A77',
   projectId: '6b866bf1-af89-481f-840e-c2779ec6c5fb',
 };
 const actual = {
@@ -43,6 +44,7 @@ const actual = {
   owner: config.owner,
   slug: config.slug,
   bundleIdentifier: config.ios?.bundleIdentifier,
+  appleTeamId: config.ios?.appleTeamId,
   projectId: config.extra?.eas?.projectId,
 };
 for (const [key, value] of Object.entries(expected)) {
