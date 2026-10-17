@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Meeting } from '../types/meeting';
+import { ListeningFace } from './ListeningFace';
 
 interface AlarmOverlayProps {
   visible: boolean;
@@ -31,7 +32,7 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
       const pulseLoop = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.15,
+            toValue: 1.05,
             duration: 600,
             useNativeDriver: true,
           }),
@@ -88,13 +89,7 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
     >
       <View style={styles.overlay}>
         <View style={styles.contentContainer}>
-          {/* Badge Báo thức iPhone */}
-          <View style={styles.topBadge}>
-            <Ionicons name="notifications" size={15} color="#D97706" />
-            <Text style={styles.topBadgeText}>BÁO THỨC LỊCH HỌP</Text>
-          </View>
-
-          {/* Vòng tròn nhịp rung chuông Navy */}
+          {/* Nhân vật đang phát âm theo cùng phong cách màn hình thu âm */}
           <View style={styles.bellWrapper}>
             <Animated.View
               style={[
@@ -105,13 +100,8 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
                 },
               ]}
             />
-            <Animated.View
-              style={[
-                styles.bellCircle,
-                { transform: [{ scale: pulseAnim }] },
-              ]}
-            >
-              <Ionicons name="volume-high" size={44} color="#FFFFFF" />
+            <Animated.View style={[styles.characterPulse, { transform: [{ scale: pulseAnim }] }]}>
+              <ListeningFace active size={190} />
             </Animated.View>
           </View>
 
@@ -142,7 +132,7 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
           >
             <View style={styles.dismissInner}>
               <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" />
-              <Text style={styles.dismissTitle}>ĐÃ NHỚ</Text>
+              <Text style={styles.dismissTitle}>Đã nhớ</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -166,8 +156,6 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     padding: 26,
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#BFDBFE',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -180,58 +168,29 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  topBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  topBadgeText: {
-    color: '#B45309',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
   bellWrapper: {
-    width: 104,
-    height: 104,
+    width: 220,
+    height: 180,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   rippleRing: {
     position: 'absolute',
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: '#93C5FD',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: '#DCEFFF',
   },
-  bellCircle: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    backgroundColor: '#0A2540',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#3B82F6',
-  },
+  characterPulse: { alignItems: 'center', justifyContent: 'center' },
   bigTimeText: {
-    fontSize: 46,
-    fontWeight: '900',
+    fontSize: 46, fontFamily: 'Roboto',
     color: '#0A2540',
     letterSpacing: -1,
     marginBottom: 6,
   },
   meetingTitle: {
-    fontSize: 21,
-    fontWeight: '800',
+    fontSize: 21, fontFamily: 'Roboto',
     color: '#0F172A',
     textAlign: 'center',
     marginBottom: 14,
@@ -252,32 +211,27 @@ const styles = StyleSheet.create({
   },
   voiceText: {
     color: '#0A2540',
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 13, fontFamily: 'Roboto',
     flex: 1,
     fontStyle: 'italic',
   },
   repeatNotice: {
     color: '#64748B',
-    fontSize: 13,
+    fontSize: 13, fontFamily: 'Roboto',
     textAlign: 'center',
     marginBottom: 24,
-    fontWeight: '500',
   },
   highlightText: {
     color: '#D97706',
-    fontWeight: '800',
   },
   dismissButton: {
     width: '100%',
-    backgroundColor: '#059669',
-    borderRadius: 18,
+    backgroundColor: '#00ADFC',
+    borderRadius: 999,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#34D399',
     ...Platform.select({
       ios: {
-        shadowColor: '#059669',
+        shadowColor: '#008FCC',
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.35,
         shadowRadius: 12,
@@ -300,14 +254,12 @@ const styles = StyleSheet.create({
   },
   dismissTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '900',
-    letterSpacing: 0.5,
+    fontSize: 15, fontFamily: 'Roboto',
+    letterSpacing: 0.2,
   },
   dismissSubtitle: {
     color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 11,
+    fontSize: 11, fontFamily: 'Roboto',
     marginTop: 2,
-    fontWeight: '500',
   },
 });
