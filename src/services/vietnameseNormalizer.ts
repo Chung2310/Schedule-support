@@ -23,9 +23,33 @@ const numberWords = `(?:(?:${digit})\\s+mươi(?:\\s+(?:${digit}))?|(?:mười|h
 const number = `(?:\\d{1,2}|${numberWords})`;
 const start = '(?<![\\p{L}\\p{N}])';
 const end = '(?![\\p{L}\\p{N}])';
+
+// Speech recognition can transcribe a clock time as HH.MM or HH,MM. Normalize it once
+// for both creating meetings and editing them by voice. Two minute digits and
+// token boundaries avoid treating versions, dates or decimal durations as times.
+function normalizeClockSeparators(text: string): string {
+  return text.replace(
+    /(?<![\p{L}\p{N}.,/])(\d{1,2})\s*[.,]\s*(\d{2})(?:\s*(?:giờ|h)(?![\p{L}\p{N}]))?(?![\p{L}\p{N}]|\s*[.,/]\s*\d)/gu,
+    (match: string, hour: string, minute: string, offset: number, source: string) => {
+      if (Number(hour) > 23 || Number(minute) > 59) return match;
+      const before = source.slice(0, offset);
+      const after = source.slice(offset + match.length);
+      if (/(?:ngày|mùng|tháng|phiên bản|version|mã|giá|doanh số|doanh thu)\s*$/u.test(before)) return match;
+      if (/^\s*(?:phút|p|tiếng|triệu|tỷ|tỉ|nghìn|ngàn|đồng|vnd|usd|kg|km|mét|lít|độ|gb|mb|%)(?![\p{L}\p{N}])/u.test(after)) return match;
+      // "15.30 ngày mai" is a clock followed by a date, whereas
+      // "thêm 1.50 ngày" is a decimal duration.
+      const dateFollows = /^\s*(?:ngày\s+(?:mai|mốt|kia|\d{1,2}|một|hai|ba|bốn|tư|năm|sáu|bảy|tám|chín|mười|hăm)|tuần\s+(?:sau|tới|này))(?![\p{L}\p{N}])/u.test(after);
+      if (/^\s*(?:ngày|tuần)(?![\p{L}\p{N}])/u.test(after) && !dateFollows) return match;
+      if (/(?:sau|trước|thêm|bớt|sớm hơn|sớm lên|muộn hơn|trễ hơn|lùi lại|nhắc lại)\s*$/u.test(before) && /(?:giờ|h)$/u.test(match)) return match;
+      return `${hour.padStart(2, '0')}:${minute}`;
+    }
+  );
+}
+
 export function normalizeVietnameseVoiceText(raw: string): string {
   let text = raw.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ')
     .replace(/(^|\s)hôm này(?=$|[\s,.!?;:])/g, '$1hôm nay');
+  text = normalizeClockSeparators(text);
   for (const [pattern, replacement] of [
     ['ai ti|i t|ai-ti', 'IT'], ['hđqt|hội đồng quản trị', 'Hội đồng Quản trị'],
     ['ceo|xi i ô', 'CEO'], ['marketing|mác két tinh', 'Marketing'],

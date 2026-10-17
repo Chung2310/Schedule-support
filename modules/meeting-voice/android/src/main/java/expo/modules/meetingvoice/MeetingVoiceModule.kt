@@ -133,7 +133,12 @@ class MeetingVoiceModule : Module() {
             // Use an installed voice so meeting content is not sent to a server.
             val voices = tts.voices?.filter { it.locale.language == "vi" && !it.isNetworkConnectionRequired }
               ?.sortedBy { it.name } ?: emptyList()
-            val voice = voices.firstOrNull { it.name == voiceIdentifier } ?: voices.firstOrNull()
+            val voice = if (voiceIdentifier.isBlank()) voices.firstOrNull()
+              else voices.firstOrNull { it.name == voiceIdentifier }
+            if (voice == null && voiceIdentifier.isNotBlank()) {
+              finish("Selected Vietnamese voice is not installed")
+              return@post
+            }
             if (voice == null || tts.setVoice(voice) == TextToSpeech.ERROR) {
               finish("No installed offline Vietnamese voice")
               return@post

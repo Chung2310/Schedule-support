@@ -73,8 +73,9 @@ export function EditMeetingModal({ meeting, onClose, onSave }: Props) {
             </View>
             {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
             <TouchableOpacity accessibilityRole="button" style={[styles.save, saving && styles.disabled]} disabled={saving} onPress={save}>
-              <Text style={styles.saveText}>{saving ? 'Đang lưu…' : 'Lưu thay đổi'}</Text>
+              <Text style={styles.saveText}>{saving ? 'Đang chuẩn bị giọng đọc…' : 'Lưu thay đổi'}</Text>
             </TouchableOpacity>
+            {saving ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để cập nhật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
@@ -83,6 +84,7 @@ export function EditMeetingModal({ meeting, onClose, onSave }: Props) {
 }
 
 const styles = StyleSheet.create({
+  savingHint: { color: '#64748B', fontSize: 12, lineHeight: 18, marginTop: 10, textAlign: 'center' },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
   sheet: { maxHeight: '90%', backgroundColor: '#FFFFFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingBottom: Platform.OS === 'ios' ? 34 : 20 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },

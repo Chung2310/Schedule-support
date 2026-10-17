@@ -25,6 +25,7 @@ const NOTIFICATION_CATEGORY_ID = 'MEETING_ALARM_ACTIONS';
 const NOTIFICATION_CHANNEL_ID = 'ceo_meeting_alarms_chime_v1';
 const NOTIFICATION_SOUND = 'meeting_reminder.wav';
 const DAILY_BRIEFING_ID = 'ceo_daily_schedule_briefing';
+const VOICE_PREVIEW_ID = 'ceo_background_voice_preview';
 // Keep the spoken agenda comfortably below the native notification sound limit.
 const MAX_DAILY_BRIEFING_VOICE_LENGTH = 360;
 const DISMISS_ACTION = 'DISMISS_ACTION';
@@ -383,6 +384,50 @@ class AlarmManagerService {
       console.warn('Could not send test notification:', error);
       return false;
     }
+  }
+
+  async scheduleVoicePreview(settings: AppSettings): Promise<void> {
+    if (Platform.OS === 'web') throw new Error('Hãy thử giọng đọc nền trên bản cài điện thoại.');
+    // Share the scheduling queue so native synthesis cannot overlap a meeting
+    // save. Start the countdown only after the audio file is ready.
+    await this.enqueue(async () => {
+      await this.ensureNotificationChannel();
+      const permission = await Notifications.getPermissionsAsync();
+      if (!permission.granted || permission.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
+        throw new Error('Hãy bật Cho phép thông báo cho iGen Check trong Cài đặt thiết bị rồi thử lại.');
+      }
+      if (permission.ios?.allowsSound === false) {
+        throw new Error('Âm thanh thông báo đang tắt. Hãy bật Âm thanh cho iGen Check trong Cài đặt → Thông báo.');
+      }
+      if (Platform.OS === 'ios') {
+        const pending = await Notifications.getAllScheduledNotificationsAsync();
+        if (pending.length >= 64 && !pending.some((item) => item.identifier === VOICE_PREVIEW_ID)) {
+          throw new Error('Hiện có nhiều thông báo chờ. Hãy thử lại sau lần nhắc tiếp theo để giữ nguyên các lịch đã đặt.');
+        }
+      }
+      const text = 'Đây là giọng đọc nhắc lịch của iGen Check khi ứng dụng ở nền.';
+      const voice = await MeetingVoice.prepareTextOrThrow(text, settings);
+      const identifier = VOICE_PREVIEW_ID;
+      const fireAt = Date.now() + 15_000;
+      const content = {
+        title: 'iGen Check · Thử giọng đọc nền',
+        subtitle: 'Kiểm tra nhắc lịch bằng giọng nói',
+        body: text,
+      };
+      if (Platform.OS === 'ios') {
+        await MeetingVoice.scheduleIOS({ ...content, identifier, sound: voice.sound, fireAt });
+      } else {
+        await Notifications.scheduleNotificationAsync({
+          identifier,
+          content: { ...content, sound: NOTIFICATION_SOUND },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: new Date(fireAt),
+            channelId: voice.channelId,
+          },
+        });
+      }
+    });
   }
 
   private async removeMeetingNotifications(meetingId: string) {

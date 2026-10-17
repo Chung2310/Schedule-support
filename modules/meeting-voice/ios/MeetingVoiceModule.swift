@@ -35,6 +35,24 @@ public final class MeetingVoiceModule: Module {
     // Schedule directly because Expo's bundle-only sound check does not
     // recognize runtime files in Library/Sounds (supported by iOS itself).
     AsyncFunction("scheduleIOS") { (input: VoiceNotification, promise: Promise) in
+      let date = Date(timeIntervalSince1970: input.fireAt / 1000)
+      guard date > Date() else {
+        promise.reject("SCHEDULE_EXPIRED", "The reminder time has already passed")
+        return
+      }
+      do {
+        let soundURL = try self.soundDirectory().appendingPathComponent(input.sound)
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.none], ofItemAtPath: soundURL.path)
+        let file = try AVAudioFile(forReading: soundURL)
+        guard file.length > 0, file.fileFormat.sampleRate > 0,
+              Double(file.length) / file.fileFormat.sampleRate < 30 else {
+          promise.reject("SOUND_UNAVAILABLE", "The prepared voice file is empty or too long")
+          return
+        }
+      } catch {
+        promise.reject("SOUND_UNAVAILABLE", "The prepared voice file cannot be read")
+        return
+      }
       let content = UNMutableNotificationContent()
       content.title = input.title
       content.subtitle = input.subtitle
@@ -45,8 +63,6 @@ public final class MeetingVoiceModule: Module {
       if !input.type.isEmpty { userInfo["type"] = input.type }
       content.userInfo = userInfo
       content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: input.sound))
-      let date = Date(timeIntervalSince1970: input.fireAt / 1000)
-      guard date > Date() else { promise.resolve(nil); return }
       let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
       let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
       UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: input.identifier, content: content, trigger: trigger)) { error in
@@ -64,8 +80,13 @@ public final class MeetingVoiceModule: Module {
         let digest = SHA256.hash(data: Data("v2|vi-VN|\(voiceIdentifier)|\(rate)|\(pitch)|\(text)".utf8))
         let key = "mv_" + digest.map { String(format: "%02x", $0) }.joined()
         let output = directory.appendingPathComponent("\(key).caf")
-        if let file = try? AVAudioFile(forReading: output), file.length > 0 {
-          try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: output.path)
+        if let file = try? AVAudioFile(forReading: output), file.length > 0,
+           file.fileFormat.sampleRate > 0, Double(file.length) / file.fileFormat.sampleRate < 29 {
+          // Older cached files may still inherit protection that blocks reads
+          // while locked. Refresh protection as well as the cache timestamp.
+          try FileManager.default.setAttributes([
+            .modificationDate: Date(), .protectionKey: FileProtectionType.none
+          ], ofItemAtPath: output.path)
           promise.resolve(["key": key, "sound": output.lastPathComponent])
           return
         }
@@ -73,6 +94,10 @@ public final class MeetingVoiceModule: Module {
         let selectedVoice = voiceIdentifier.isEmpty
           ? nil
           : voices.first(where: { $0.identifier == voiceIdentifier })
+        guard voiceIdentifier.isEmpty || selectedVoice != nil else {
+          promise.reject("VOICE_NOT_FOUND", "Selected Vietnamese voice is not installed")
+          return
+        }
         guard let voice = selectedVoice ?? voices.first else {
           promise.reject("VOICE_UNAVAILABLE", "No installed Vietnamese voice")
           return
@@ -115,6 +140,7 @@ public final class MeetingVoiceModule: Module {
     let library = try FileManager.default.url(for: .libraryDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
     let directory = library.appendingPathComponent("Sounds", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes([.protectionKey: FileProtectionType.none], ofItemAtPath: directory.path)
     return directory
   }
 }

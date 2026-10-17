@@ -52,7 +52,7 @@ jobs:
       - name: Check Expo dependencies and configuration
         run: npx expo-doctor
 
-      - name: Check generated iOS privacy declarations
+      - name: Check generated iOS privacy and widget configuration
         run: npm run ios:check
 
   build-ios:
