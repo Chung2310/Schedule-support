@@ -14,6 +14,7 @@ import { MeetingCard } from './MeetingCard';
 interface DayDetailViewProps {
   date: Date;
   meetings: Meeting[];
+  calendarColor: string;
   onBack: () => void;
   onAddMeeting: () => void;
   onSimulateAlarm: (meeting: Meeting) => void;
@@ -24,6 +25,7 @@ interface DayDetailViewProps {
 export const DayDetailView: React.FC<DayDetailViewProps> = ({
   date,
   meetings,
+  calendarColor,
   onBack,
   onAddMeeting,
   onSimulateAlarm,
@@ -93,6 +95,7 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
               <MeetingCard
                 key={item.id}
                 meeting={item}
+                calendarColor={calendarColor}
                 onSimulateAlarm={onSimulateAlarm}
                 onDelete={onDeleteMeeting}
                 onEdit={onEditMeeting}
@@ -140,9 +143,8 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   backButtonText: {
-    fontSize: 16,
+    fontSize: 16, fontFamily: 'Roboto',
     color: '#0A2540',
-    fontWeight: '700',
   },
   addIconBtn: {
     width: 36,
@@ -170,8 +172,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   bigDayNumber: {
-    fontSize: 42,
-    fontWeight: '900',
+    fontSize: 42, fontFamily: 'Roboto',
     color: '#0A2540',
     letterSpacing: -1,
   },
@@ -179,15 +180,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bigDayOfWeek: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 18, fontFamily: 'Roboto',
     color: '#0F172A',
     textTransform: 'capitalize',
   },
   monthYearText: {
-    fontSize: 13,
+    fontSize: 13, fontFamily: 'Roboto',
     color: '#64748B',
-    fontWeight: '600',
     textTransform: 'capitalize',
     marginTop: 2,
   },
@@ -200,8 +199,7 @@ const styles = StyleSheet.create({
     borderColor: '#BFDBFE',
   },
   countBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 12, fontFamily: 'Roboto',
     color: '#1D4ED8',
   },
   scrollList: {
@@ -232,13 +230,12 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
   },
   emptyTitle: {
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 17, fontFamily: 'Roboto',
     color: '#0F172A',
     textAlign: 'center',
   },
   emptySubtitle: {
-    fontSize: 13,
+    fontSize: 13, fontFamily: 'Roboto',
     color: '#64748B',
     textAlign: 'center',
     marginTop: 6,
@@ -256,8 +253,7 @@ const styles = StyleSheet.create({
   },
   emptyAddButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 14, fontFamily: 'Roboto',
   },
   bottomBar: {
     position: 'absolute',
@@ -289,7 +285,6 @@ const styles = StyleSheet.create({
   },
   floatingVoiceBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 14, fontFamily: 'Roboto',
   },
 });

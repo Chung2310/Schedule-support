@@ -1,4 +1,4 @@
-import * as Notifications from 'expo-notifications';
+import type { NotificationResponse } from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
 import { Meeting } from '../types/meeting';
 import { AppSettings } from '../types/settings';
@@ -9,7 +9,21 @@ import { buildReminderPlan } from '../utils/reminderPlan';
 import { MeetingVoice } from './meetingVoice';
 import { cleanReminderText } from '../utils/reminderText';
 
-Notifications.setNotificationHandler({
+type NotificationsModule = typeof import('expo-notifications');
+
+const Notifications: NotificationsModule | null = (() => {
+  try {
+    // The Expo Go binary may lack a native module imported by the package barrel.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('expo-notifications') as NotificationsModule;
+  } catch (error) {
+    if (Platform.OS !== 'android' || !String(error).includes('ExpoTopicSubscriptionModule')) throw error;
+    console.warn('Notifications are unavailable in this Expo Go build. Use a development build to test reminders.');
+    return null;
+  }
+})();
+
+Notifications?.setNotificationHandler({
   handleNotification: async (notification) => ({
     // Foreground meetings are read by SpeechService with the alarm overlay.
     // Avoid playing the generated notification voice over that same speech.
@@ -103,11 +117,11 @@ class AlarmManagerService {
   private channelInitialization: Promise<unknown> | null = null;
   private notificationQueue: Promise<unknown> = Promise.resolve();
   private handledResponses = new Set<string>();
-  private responseSubscription: ReturnType<typeof Notifications.addNotificationResponseReceivedListener> | null = null;
+  private responseSubscription: ReturnType<NotificationsModule['addNotificationResponseReceivedListener']> | null = null;
 
   async init(callbacks: AlarmCallbacks): Promise<void> {
     this.callbacks = callbacks;
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web' || !Notifications) return;
     if (!this.initialization) {
       this.initialization = this.initializeNotifications().catch((error) => {
         this.initialization = null;
@@ -118,6 +132,7 @@ class AlarmManagerService {
   }
 
   private async initializeNotifications() {
+    if (!Notifications) return;
     // Register before reading the saved response, so a cold-start action is not lost.
     if (!this.responseSubscription) {
       this.responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -141,7 +156,8 @@ class AlarmManagerService {
     if (response) await this.handleResponse(response);
   }
 
-  private async handleResponse(response: Notifications.NotificationResponse) {
+  private async handleResponse(response: NotificationResponse) {
+    if (!Notifications) return;
     const request = response.notification.request;
     const responseKey = `${request.identifier}:${response.actionIdentifier}`;
     if (request.content.data?.type === 'DAILY_BRIEFING') {
@@ -182,7 +198,7 @@ class AlarmManagerService {
   }
 
   private async ensureNotificationChannel(): Promise<void> {
-    if (Platform.OS !== 'android') return;
+    if (Platform.OS !== 'android' || !Notifications) return;
     if (!this.channelInitialization) {
       this.channelInitialization = Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
         name: 'Nhắc lịch hẹn',
@@ -204,6 +220,7 @@ class AlarmManagerService {
   /** Reconcile the OS queue from local data, including requests created by older app launches. */
   async syncNotifications(settings: AppSettings): Promise<boolean> {
     if (Platform.OS === 'web') return true;
+    if (!Notifications) return false;
     return this.enqueue(async () => {
       this.voiceFallbackMeetingIds.clear();
       const meetings = await StorageService.getMeetings();
@@ -360,7 +377,7 @@ class AlarmManagerService {
   }
 
   async sendInstantDailyBriefingNotification(meetings: Meeting[]) {
-    if (Platform.OS === 'web') return false;
+    if (Platform.OS === 'web' || !Notifications) return false;
     const now = new Date();
     const briefing = buildTodayScheduleBriefing(
       meetings.filter((meeting) => isSameDay(new Date(meeting.meetingTime), now)), now
@@ -388,6 +405,7 @@ class AlarmManagerService {
 
   async scheduleVoicePreview(settings: AppSettings): Promise<void> {
     if (Platform.OS === 'web') throw new Error('Hãy thử giọng đọc nền trên bản cài điện thoại.');
+    if (!Notifications) throw new Error('Bản Expo Go này không hỗ trợ thông báo. Hãy dùng development build để thử giọng đọc nền.');
     // Share the scheduling queue so native synthesis cannot overlap a meeting
     // save. Start the countdown only after the audio file is ready.
     await this.enqueue(async () => {
@@ -431,7 +449,7 @@ class AlarmManagerService {
   }
 
   private async removeMeetingNotifications(meetingId: string) {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web' || !Notifications) return;
     const pending = await Notifications.getAllScheduledNotificationsAsync();
     await Promise.all(pending
       .filter((request) => request.content.data?.meetingId === meetingId)

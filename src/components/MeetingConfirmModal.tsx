@@ -158,8 +158,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 18, fontFamily: 'Roboto',
     color: '#0A2540',
   },
   closeBtn: {
@@ -182,15 +181,13 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
   },
   timeBig: {
-    fontSize: 32,
-    fontWeight: '900',
+    fontSize: 32, fontFamily: 'Roboto',
     color: '#0A2540',
     letterSpacing: -0.5,
   },
   dateLabel: {
-    fontSize: 13,
+    fontSize: 13, fontFamily: 'Roboto',
     color: '#64748B',
-    fontWeight: '600',
     marginTop: 2,
     textTransform: 'capitalize',
   },
@@ -208,8 +205,7 @@ const styles = StyleSheet.create({
   },
   adjustBtnText: {
     color: '#1D4ED8',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 13, fontFamily: 'Roboto',
   },
   inputCard: {
     backgroundColor: '#F8FAFC',
@@ -221,9 +217,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   textInput: {
-    fontSize: 16,
+    fontSize: 16, fontFamily: 'Roboto',
     color: '#0F172A',
-    fontWeight: '600',
   },
   metaRow: {
     flexDirection: 'row',
@@ -233,9 +228,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   metaText: {
-    fontSize: 13,
+    fontSize: 13, fontFamily: 'Roboto',
     color: '#64748B',
-    fontWeight: '500',
   },
   saveBtn: {
     backgroundColor: '#0A2540',
@@ -248,8 +242,7 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 16, fontFamily: 'Roboto',
     letterSpacing: 0.5,
   },
 });

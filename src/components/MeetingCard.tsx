@@ -2,11 +2,14 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Meeting } from '../types/meeting';
+import { useCancelMeetingDialog } from './AppDialog';
 
 import { isSameDay } from '../utils/dateUtils';
+import { getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
 
 interface MeetingCardProps {
   meeting: Meeting;
+  calendarColor: string;
   onSimulateAlarm: (meeting: Meeting) => void;
   onDelete: (id: string) => void;
   onEdit: (meeting: Meeting) => void;
@@ -15,11 +18,13 @@ interface MeetingCardProps {
 
 export const MeetingCard: React.FC<MeetingCardProps> = ({
   meeting,
+  calendarColor,
   onSimulateAlarm,
   onDelete,
   onEdit,
   showDateBadge = false,
 }) => {
+  const confirmCancelMeeting = useCancelMeetingDialog(onDelete);
   const meetingDate = new Date(meeting.meetingTime);
 
   const timeStr = meetingDate.toLocaleTimeString('vi-VN', {
@@ -43,16 +48,10 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
   const isAcknowledged = meeting.status === 'ACKNOWLEDGED';
   const isReminding = meeting.status === 'REMINDING';
 
-  const accentColor = isAcknowledged
-    ? '#10B981'
-    : isReminding
-    ? '#EF4444'
-    : '#0A2540';
-
   return (
-    <View style={[styles.card, isAcknowledged && styles.cardDimmed]}>
+    <View style={[styles.card, { backgroundColor: getCalendarCardBackground(calendarColor) }, calendarColor === '#FFFFFF' && styles.whiteCard]}>
       {/* Vạch màu chỉ thị bên trái */}
-      <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+      <View style={[styles.accentBar, { backgroundColor: getCalendarAccentColor(calendarColor) }]} />
 
       {/* Cột Giờ */}
       <View style={styles.timeColumn}>
@@ -97,7 +96,7 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
 
         <TouchableOpacity
           style={styles.deleteBtn}
-          onPress={() => onDelete(meeting.id)}
+          onPress={() => confirmCancelMeeting(meeting)}
           accessibilityLabel="Xóa"
         >
           <Ionicons name="close" size={18} color="#94A3B8" />
@@ -130,9 +129,7 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  cardDimmed: {
-    opacity: 0.7,
-  },
+  whiteCard: { borderColor: '#E8EEF3' },
   accentBar: {
     width: 3.5,
     height: 34,
@@ -144,14 +141,12 @@ const styles = StyleSheet.create({
   },
   timeText: {
     color: '#0F172A',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 15, fontFamily: 'Roboto',
     letterSpacing: -0.3,
   },
   leadTimeText: {
     color: '#64748B',
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 11, fontFamily: 'Roboto',
     marginTop: 1,
   },
   dateBadgePill: {
@@ -164,8 +159,7 @@ const styles = StyleSheet.create({
   },
   dateBadgePillText: {
     color: '#1D4ED8',
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 10, fontFamily: 'Roboto',
   },
   contentColumn: {
     flex: 1,
@@ -173,13 +167,11 @@ const styles = StyleSheet.create({
   },
   titleText: {
     color: '#0F172A',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 15, fontFamily: 'Roboto',
   },
   subText: {
     color: '#64748B',
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 12, fontFamily: 'Roboto',
     marginTop: 2,
   },
   actionColumn: {
