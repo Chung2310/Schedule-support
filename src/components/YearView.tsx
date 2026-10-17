@@ -203,8 +203,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   yearTitleText: {
-    fontSize: 26,
-    fontWeight: '900',
+    fontSize: 26, fontFamily: 'Roboto',
     color: '#0A2540',
     letterSpacing: -0.5,
   },
@@ -246,8 +245,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   monthCardTitle: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 14, fontFamily: 'Roboto',
     color: '#0A2540',
   },
   monthCardTitleCurrent: {
@@ -261,8 +259,7 @@ const styles = StyleSheet.create({
   },
   monthBadgeText: {
     color: '#1D4ED8',
-    fontSize: 9.5,
-    fontWeight: '700',
+    fontSize: 9.5, fontFamily: 'Roboto',
   },
   miniWeekRow: {
     flexDirection: 'row',
@@ -272,8 +269,7 @@ const styles = StyleSheet.create({
   miniWeekText: {
     width: 18,
     textAlign: 'center',
-    fontSize: 8.5,
-    fontWeight: '700',
+    fontSize: 8.5, fontFamily: 'Roboto',
     color: '#94A3B8',
   },
   miniDaysGrid: {
@@ -288,8 +284,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   miniDayNumber: {
-    fontSize: 9.5,
-    fontWeight: '600',
+    fontSize: 9.5, fontFamily: 'Roboto',
     color: '#1E293B',
   },
   miniDayNumberDimmed: {
@@ -297,11 +292,9 @@ const styles = StyleSheet.create({
   },
   miniDayNumberHasMeeting: {
     color: '#1D4ED8',
-    fontWeight: '900',
   },
   miniDayNumberToday: {
     color: '#2563EB',
-    fontWeight: '900',
   },
   miniEventDot: {
     width: 2.5,

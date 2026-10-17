@@ -92,11 +92,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     }
   }, [selectedDate, daysInMonth]);
 
-  const rawMonthTitle = selectedDate.toLocaleDateString('vi-VN', {
+  const monthTitle = selectedDate.toLocaleDateString('vi-VN', {
     month: 'long',
     year: 'numeric',
   });
-  const monthTitle = rawMonthTitle.charAt(0).toUpperCase() + rawMonthTitle.slice(1);
 
   return (
     <View style={styles.container}>
@@ -195,8 +194,8 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    paddingTop: 4,
-    paddingBottom: 4,
+    paddingTop: 10,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
@@ -204,13 +203,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 2,
-    paddingBottom: 6,
+    paddingBottom: 10,
   },
   monthTitleText: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 17, fontFamily: 'Roboto',
     color: '#0A2540',
     letterSpacing: -0.3,
   },
@@ -224,17 +222,15 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   dayOfWeekText: {
-    fontSize: 11.5,
-    fontWeight: '700',
+    fontSize: 11.5, fontFamily: 'Roboto',
     color: '#94A3B8',
     marginBottom: 3,
   },
   dayOfWeekWeekend: {
-    color: '#D97706',
+    color: '#73889B',
   },
   dayOfWeekSelected: {
-    color: '#2563EB',
-    fontWeight: '800',
+    color: '#008FCC',
   },
   dayCircle: {
     width: 36,
@@ -245,42 +241,38 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   dayCircleHasMeetings: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: '#EAF8FF',
     borderWidth: 1.5,
-    borderColor: '#93C5FD',
+    borderColor: '#A9E5FF',
   },
   dayCircleToday: {
     borderWidth: 2,
-    borderColor: '#2563EB',
+    borderColor: '#00ADFC',
   },
   todayButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: '#EAF8FF',
   },
   todayButtonText: {
-    color: '#2563EB',
-    fontSize: 13,
-    fontWeight: '700',
+    color: '#008FCC',
+    fontSize: 13, fontFamily: 'Roboto',
   },
   // Ô khi chọn: Đổi từ màu đen sang màu xanh Apple hiện đại
   dayCircleSelected: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
+    backgroundColor: '#00ADFC',
+    borderColor: '#00ADFC',
   },
   dayNumber: {
-    fontSize: 14.5,
-    fontWeight: '700',
+    fontSize: 14.5, fontFamily: 'Roboto',
     color: '#1E293B',
   },
   dayNumberHasMeetings: {
-    color: '#1E40AF',
-    fontWeight: '900',
+    color: '#008FCC',
   },
   dayNumberSelected: {
     color: '#FFFFFF',
-    fontWeight: '900',
   },
   countBadgeMini: {
     position: 'absolute',
@@ -289,14 +281,13 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: '#2563EB',
+    backgroundColor: '#00ADFC',
     justifyContent: 'center',
     alignItems: 'center',
   },
   countBadgeMiniText: {
     color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '800',
+    fontSize: 9, fontFamily: 'Roboto',
   },
   dotsSlot: {
     height: 5,
@@ -316,6 +307,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#059669',
   },
   dotSelected: {
-    backgroundColor: '#2563EB',
+    backgroundColor: '#00ADFC',
   },
 });

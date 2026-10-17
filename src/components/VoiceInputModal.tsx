@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
-  Animated,
   KeyboardAvoidingView,
   Platform,
   TouchableWithoutFeedback,
@@ -14,6 +13,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { STTService } from '../services/sttService';
 import { parseVietnameseVoiceMeeting } from '../services/nlpParser';
@@ -22,9 +22,12 @@ import type { Meeting } from '../types/meeting';
 import { voiceEditCommand, voiceEditFields } from '../services/voiceMeetingCommand';
 import { applyMeetingEdit, type MeetingEditFields } from '../utils/meetingEdit';
 import { findMeetingTimeConflict, meetingConflictMessage, meetingMinute } from '../utils/meetingConflict';
+import { ListeningFace } from './ListeningFace';
+import { RainbowConfirmButton } from './RainbowConfirmButton';
 
 interface VoiceInputModalProps {
   visible: boolean;
+  autoStart?: boolean;
   onClose: () => void;
   onSaveMeeting: (data: {
     title: string;
@@ -42,6 +45,7 @@ interface VoiceInputModalProps {
 
 export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   visible,
+  autoStart = false,
   onClose,
   onSaveMeeting,
   initialText = '',
@@ -76,9 +80,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const [timeOffsetMinutes, setTimeOffsetMinutes] = useState(0);
 
   const inputRef = useRef<TextInput>(null);
-
-  // Animation trượt sheet nhẹ nhàng chuẩn iOS
-  const [sheetSlideAnim] = useState(() => new Animated.Value(300));
+  const autoStartedRef = useRef(false);
 
   const isNativeSTT = STTService.isNativeAvailable();
   const stopListening = useCallback(() => {
@@ -109,22 +111,15 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   useEffect(() => {
     if (visible) {
-      Animated.timing(sheetSlideAnim, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
-
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } catch {}
 
     }
-    // Opening a calendar slot does not start the microphone. The user taps mic explicitly.
     return () => {
       stopListening();
     };
-  }, [visible, sheetSlideAnim, stopListening]);
+  }, [visible, stopListening]);
 
   // Bộ phân tích ngôn ngữ tự nhiên chạy trực tiếp từ lời nói người dùng
   const parsed = useMemo(() => {
@@ -230,6 +225,12 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     }
   };
 
+  const handleModalShow = () => {
+    if (!autoStart || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    void startListening();
+  };
+
   const handleClose = () => {
     if (savingRef.current) return;
     stopListening();
@@ -303,21 +304,14 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const canConfirm = hasContent && !speechBusy && !saving && !timeConflict && (!editCommand || !!editPreview?.meeting);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+    <Modal visible={visible} animationType="slide" onShow={handleModalShow} onRequestClose={handleClose}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.backdrop}>
+        <View style={styles.screen}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.keyboardView}
           >
-            <Animated.View
-              style={[
-                styles.sheet,
-                {
-                  transform: [{ translateY: sheetSlideAnim }],
-                },
-              ]}
-            >
+            <SafeAreaView style={styles.sheet} edges={['top', 'bottom']}>
               {/* Thanh kéo iOS */}
               <View style={styles.dragHandle} />
 
@@ -334,9 +328,17 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.formScroll} keyboardShouldPersistTaps="handled">
+              <ScrollView
+                style={styles.formScroll}
+                contentContainerStyle={styles.formContent}
+                keyboardShouldPersistTaps="handled"
+              >
               {/* Khu vực Micro đơn giản, rõ ràng */}
               <View style={styles.micContainer}>
+                <ListeningFace key={speechBusy ? 'listening' : 'idle'} active={speechBusy} />
+                {speechBusy ? <Text style={styles.listeningHeadline} accessibilityLiveRegion="polite">
+                  {isListening ? 'Tôi đang nghe đây...' : isStarting ? 'Đang chuẩn bị micro...' : 'Đang hoàn tất nhận diện...'}
+                </Text> : null}
                 <TouchableOpacity
                   style={[
                     styles.micButton,
@@ -355,33 +357,31 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                   />
                 </TouchableOpacity>
 
-                {speechBusy ? (
-                  <Text accessibilityLiveRegion="polite" style={[styles.micStatusText, isListening && styles.micStatusTextListening]}>
-                    {isStarting ? 'Đang chuẩn bị micro…' : isFinishing ? 'Đang hoàn tất nhận diện…' : 'Đang nghe…'}
-                  </Text>
-                ) : null}
-
                 {errorMessage ? (
                   <Text style={styles.errorText}>{errorMessage}</Text>
                 ) : null}
               </View>
 
-              {/* Ô hiển thị nội dung người dùng đọc / gõ */}
+              {/* Lời nói hiển thị trực tiếp; khi dừng nghe có thể sửa bằng bàn phím. */}
               <View style={styles.inputContainer}>
-                <TextInput
+                {speechBusy ? (
+                  <Text accessibilityLiveRegion="polite" style={[styles.liveTranscript, !hasContent && styles.livePlaceholder]}>
+                    {hasContent ? transcript : 'Nói nội dung lịch hẹn...'}
+                  </Text>
+                ) : <TextInput
                   ref={inputRef}
                   style={styles.textInput}
                   value={transcript}
-                  editable={!speechBusy && !saving}
+                  editable={!saving}
                   onChangeText={(text) => {
                     setTranscript(text);
                     setTimeOffsetMinutes(0);
                     setErrorMessage(null);
                   }}
                   placeholder="Nội dung cuộc họp"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor="#7BACC5"
                   multiline
-                />
+                />}
                 {hasContent && !speechBusy && !saving ? (
                   <TouchableOpacity
                     onPress={() => {
@@ -397,7 +397,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               </View>
 
               {/* Thông tin bóc tách được (Hiện phẳng, tối giản) */}
-              {editCommand && hasContent ? (
+              {!speechBusy && editCommand && hasContent ? (
                 <View style={styles.parsedInfoCard}>
                   {editCommand.error ? <Text style={styles.errorText}>{editCommand.error}</Text> : !editCommand.candidates.length ? <Text style={styles.errorText}>Không tìm thấy cuộc họp phù hợp. Hãy nói rõ tên hoặc giờ họp cần sửa.</Text> : null}
                   {editCommand.candidates.length > 1 ? <Text style={styles.infoLabel}>Chọn lịch:</Text> : null}
@@ -417,42 +417,39 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     <Text style={styles.dateSubText}>Báo trước {editPreview.meeting.advanceNoticeMinutes} phút · Nhắc lại {editPreview.meeting.repeatIntervalMinutes} phút</Text>
                   </View> : null}
                 </View>
-              ) : hasContent ? (
-                <View style={styles.parsedInfoCard}>
-                  {/* Dòng 1: Thời gian */}
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Thời gian:</Text>
-                    <View style={styles.infoValueGroup}>
-                      <Text style={styles.timeBoldText}>{timeStr}</Text>
-                      <Text style={styles.dateSubText}>({dateStr})</Text>
+              ) : !speechBusy && hasContent ? (
+                <View style={styles.previewCard}>
+                  <View style={styles.previewSection}>
+                    <View style={[styles.previewChip, styles.timeChip]}>
+                      <Text style={[styles.previewChipText, styles.timeChipText]}>Thời gian</Text>
+                    </View>
+                    <View style={styles.previewValueColumn}>
+                      <View style={styles.previewTimeRow}>
+                        <Text style={styles.previewTime}>{timeStr}</Text>
+                        <Text style={styles.dateSubText}>({dateStr})</Text>
+                      </View>
                       {parsed?.defaultTimePeriod && timeOffsetMinutes === 0 ? <Text style={styles.dateSubText}>
                         Giờ mặc định buổi {parsed.defaultTimePeriod === 'morning' ? 'sáng' : 'chiều'}
                       </Text> : null}
-
-                      {/* Nút chỉnh nhanh +/- 15p */}
                       <View style={styles.adjustBtns}>
-                        <TouchableOpacity
-                          style={styles.adjustBtn}
-                          onPress={() => handleAdjustMinutes(-15)}
-                        >
+                        <TouchableOpacity style={styles.adjustBtn} onPress={() => handleAdjustMinutes(-15)}>
                           <Text style={styles.adjustBtnText}>-15p</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.adjustBtn}
-                          onPress={() => handleAdjustMinutes(15)}
-                        >
+                        <TouchableOpacity style={styles.adjustBtn} onPress={() => handleAdjustMinutes(15)}>
                           <Text style={styles.adjustBtnText}>+15p</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   </View>
 
-                  {/* Dòng 2: Nội dung */}
-                  <View style={[styles.infoRow, { borderBottomWidth: 0, paddingBottom: 0 }]}>
-                    <Text style={styles.infoLabel}>Nội dung:</Text>
-                    <Text style={styles.titleBoldText} numberOfLines={2}>
-                      {effectiveTitle}
-                    </Text>
+                  <View style={styles.previewDivider} />
+                  <View style={styles.previewSection}>
+                    <View style={[styles.previewChip, styles.contentChip]}>
+                      <Text style={[styles.previewChipText, styles.contentChipText]}>Lịch hẹn</Text>
+                    </View>
+                    <View style={styles.previewValueColumn}>
+                      <Text style={styles.previewTitle}>{effectiveTitle}</Text>
+                    </View>
                   </View>
                 </View>
               ) : null}
@@ -461,22 +458,14 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               {timeConflict && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>
                 {meetingConflictMessage(timeConflict)}
               </Text> : null}
-              <TouchableOpacity
-                style={[
-                  styles.confirmBtn,
-                  !canConfirm && styles.confirmBtnDisabled,
-                ]}
+              <RainbowConfirmButton
                 disabled={!canConfirm}
                 onPress={handleConfirm}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.confirmBtnText}>
-                  {saving ? 'Đang chuẩn bị giọng đọc…' : editCommand ? 'Lưu thay đổi' : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
-                </Text>
-              </TouchableOpacity>
+                label={saving ? 'Đang chuẩn bị giọng đọc…' : editCommand ? 'Lưu thay đổi' : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
+              />
               {saving ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để bật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
               </ScrollView>
-            </Animated.View>
+            </SafeAreaView>
           </KeyboardAvoidingView>
         </View>
       </TouchableWithoutFeedback>
@@ -485,11 +474,10 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  savingHint: { color: '#64748B', fontSize: 12, lineHeight: 18, marginTop: 10, textAlign: 'center' },
-  backdrop: {
+  savingHint: { color: '#64748B', fontSize: 12, fontFamily: 'Roboto', lineHeight: 18, marginTop: 10, textAlign: 'center' },
+  screen: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-    justifyContent: 'flex-end',
+    backgroundColor: '#FFFFFF',
   },
   keyboardView: {
     flex: 1,
@@ -497,15 +485,14 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    maxHeight: '95%',
+    flex: 1,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    paddingBottom: 12,
   },
-  formScroll: { flexShrink: 1 },
+  formScroll: { flex: 1 },
+  formContent: { flexGrow: 1 },
   dragHandle: {
     width: 36,
     height: 4,
@@ -521,8 +508,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 17, fontFamily: 'Roboto',
     color: '#0A2540',
   },
   closeBtn: {
@@ -535,55 +521,70 @@ const styles = StyleSheet.create({
   },
   micContainer: {
     alignItems: 'center',
+    justifyContent: 'center',
+    flexGrow: 1,
+    minHeight: 320,
     marginVertical: 10,
+    gap: 12,
+  },
+  listeningHeadline: {
+    fontSize: 24,
+    fontFamily: 'Roboto',
+    lineHeight: 31,
+    color: '#0A2540',
+    textAlign: 'center',
+    marginBottom: 8,
   },
   micButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#0A2540',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#00ADFC',
     justifyContent: 'center',
     alignItems: 'center',
   },
   micButtonListening: {
     backgroundColor: '#DC2626',
   },
-  micStatusText: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 8,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  micStatusTextListening: {
-    color: '#DC2626',
-    fontWeight: '600',
-  },
   errorText: {
-    fontSize: 12,
+    fontSize: 12, fontFamily: 'Roboto',
     color: '#DC2626',
     marginTop: 4,
     textAlign: 'center',
   },
   inputContainer: {
-    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginBottom: 10,
+    justifyContent: 'center',
+    minHeight: 72,
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    marginBottom: 14,
   },
   textInput: {
-    flex: 1,
-    color: '#0F172A',
-    fontSize: 15,
-    minHeight: 38,
+    width: '100%',
+    color: '#00ADFC',
+    fontSize: 21, fontFamily: 'Roboto',
+    lineHeight: 30,
+    minHeight: 56,
+    maxHeight: 140,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+  },
+  liveTranscript: {
+    color: '#00ADFC',
+    fontSize: 21,
+    fontFamily: 'Roboto',
+    lineHeight: 30,
+    textAlign: 'center',
+  },
+  livePlaceholder: {
+    color: '#7BACC5',
   },
   clearBtn: {
     padding: 4,
+    position: 'absolute',
+    right: 0,
+    top: 22,
   },
   parsedInfoCard: {
     backgroundColor: '#F8FAFC',
@@ -593,39 +594,71 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     marginBottom: 14,
   },
-  infoRow: {
+  previewCard: {
+    backgroundColor: '#F8FBFE',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    gap: 14,
+  },
+  previewSection: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  previewValueColumn: { flex: 1, minWidth: 0, gap: 8, paddingTop: 3 },
+  previewDivider: { height: 1, backgroundColor: '#E2EEF5' },
+  previewChip: {
+    borderRadius: 24,
+    minHeight: 32,
+    width: 96,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewChipText: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+  },
+  timeChip: { backgroundColor: '#FFF8DD' },
+  timeChipText: { color: '#B49321' },
+  contentChip: { backgroundColor: '#E8FAF0' },
+  contentChipText: { color: '#16A45B' },
+  previewTimeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: 8,
-    marginBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEF2F6',
+    flexWrap: 'wrap',
+    columnGap: 7,
+    rowGap: 2,
+  },
+  previewTime: {
+    fontSize: 19,
+    fontFamily: 'Roboto',
+    color: '#00ADFC',
+  },
+  previewTitle: {
+    fontSize: 16,
+    fontFamily: 'Roboto',
+    lineHeight: 23,
+    color: '#0A2540',
   },
   infoLabel: {
     width: 75,
-    fontSize: 13,
+    fontSize: 13, fontFamily: 'Roboto',
     color: '#64748B',
-    fontWeight: '600',
-  },
-  infoValueGroup: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
   },
   timeBoldText: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 15, fontFamily: 'Roboto',
     color: '#0A2540',
   },
   dateSubText: {
-    fontSize: 13,
+    fontSize: 13, fontFamily: 'Roboto',
     color: '#475569',
   },
   adjustBtns: {
     flexDirection: 'row',
-    gap: 4,
-    marginLeft: 'auto',
+    alignSelf: 'flex-start',
+    gap: 8,
   },
   adjustBtn: {
     backgroundColor: '#FFFFFF',
@@ -633,32 +666,15 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#BDE8FB',
   },
   adjustBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#0A2540',
+    fontSize: 11, fontFamily: 'Roboto',
+    color: '#078FD5',
   },
   titleBoldText: {
     flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 14, fontFamily: 'Roboto',
     color: '#0A2540',
-  },
-  confirmBtn: {
-    backgroundColor: '#0A2540',
-    paddingVertical: 13,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmBtnDisabled: {
-    backgroundColor: '#CBD5E1',
-  },
-  confirmBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
   },
 });

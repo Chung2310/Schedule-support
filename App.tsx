@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
@@ -8,9 +8,10 @@ import {
   StatusBar,
   Platform,
   AppState,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { Meeting } from './src/types/meeting';
 import { AppSettings, DEFAULT_SETTINGS } from './src/types/settings';
@@ -29,17 +30,30 @@ import { AlarmOverlay } from './src/components/AlarmOverlay';
 import { VoiceInputModal } from './src/components/VoiceInputModal';
 import { SettingsModal } from './src/components/SettingsModal';
 import { EditMeetingModal } from './src/components/EditMeetingModal';
+import { NotesScreen } from './src/components/NotesScreen';
+import { FloatingMicrophoneButton } from './src/components/FloatingMicrophoneButton';
 import { applyMeetingEdit, MeetingEditFields } from './src/utils/meetingEdit';
 import { MeetingConflictError } from './src/utils/meetingConflict';
+import { WelcomeScreen } from './src/components/WelcomeScreen';
+import { AppDialogProvider, useAppDialog } from './src/components/AppDialog';
 
 export default function App() {
+  return <AppDialogProvider><AppContent /></AppDialogProvider>;
+}
+
+function AppContent() {
+  const showDialog = useAppDialog();
+  const [fontsLoaded] = useFonts({ Roboto: require('./assets/fonts/Roboto-Regular.ttf') });
+  const [hasSeenWelcome, setHasSeenWelcome] = useState<boolean | null>(null);
   const today = useLocalDay();
+  const [activeTab, setActiveTab] = useState<'notes' | 'calendar'>('notes');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isCalendarLoaded, setIsCalendarLoaded] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
   // Chế độ xem: 'YEAR' (Xem cả năm) | 'MONTH' (Mặc định: Lịch cả tháng) | 'DAY' (Chi tiết dãy giờ theo ngày)
   const [viewMode, setViewMode] = useState<'YEAR' | 'MONTH' | 'DAY'>('MONTH');
+  const [calendarDisplayMode, setCalendarDisplayMode] = useState<'month' | 'week'>('month');
 
   // Ngày đang được chọn trên lịch
   const [selectedDate, setSelectedDate] = useState<Date>(() => today);
@@ -47,6 +61,7 @@ export default function App() {
 
   // Text gợi ý khởi tạo cho modal giọng nói khi bấm vào khung giờ trống
   const [initialVoiceText, setInitialVoiceText] = useState<string>('');
+  const [autoStartVoice, setAutoStartVoice] = useState(false);
 
   // Modals state
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
@@ -55,6 +70,26 @@ export default function App() {
 
   // Active alarm for iPhone-style full overlay
   const [activeAlarmMeeting, setActiveAlarmMeeting] = useState<Meeting | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    void AsyncStorage.getItem('igencheck.hasSeenWelcome.v1')
+      .then((value) => { if (mounted) setHasSeenWelcome(value === 'true'); })
+      .catch((error) => {
+        console.warn('Could not read welcome screen state:', error);
+        if (mounted) setHasSeenWelcome(false);
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  const handleWelcomeContinue = useCallback(async () => {
+    try {
+      await AsyncStorage.setItem('igencheck.hasSeenWelcome.v1', 'true');
+    } catch (error) {
+      console.warn('Could not save welcome screen state:', error);
+    }
+    setHasSeenWelcome(true);
+  }, []);
 
   useEffect(() => {
     const previous = previousTodayRef.current;
@@ -155,11 +190,13 @@ export default function App() {
   const handleSlotPress = (hour: number) => {
     const hourStr = String(hour).padStart(2, '0');
     setInitialVoiceText(`${hourStr}h họp `);
+    setAutoStartVoice(false);
     setIsVoiceModalOpen(true);
   };
 
   const handleOpenVoiceForSelectedDate = () => {
     setInitialVoiceText('');
+    setAutoStartVoice(true);
     setIsVoiceModalOpen(true);
   };
 
@@ -206,9 +243,9 @@ export default function App() {
     const notificationsScheduled = await AlarmManager.syncNotifications(settings);
     setIsVoiceModalOpen(false);
     if (!notificationsScheduled && Platform.OS !== 'web') {
-      Alert.alert('Đã lưu lịch hẹn', 'Chưa thể bật thông báo nhắc lịch. Hãy kiểm tra quyền thông báo của ứng dụng trong Cài đặt thiết bị.');
+      showDialog('Đã lưu lịch hẹn', 'Chưa thể bật thông báo nhắc lịch. Hãy kiểm tra quyền thông báo của ứng dụng trong Cài đặt thiết bị.');
     } else if (AlarmManager.voiceFallbackMeetingIds.has(newMeeting.id)) {
-      Alert.alert('Đã lưu lịch hẹn', 'Lịch này sẽ dùng chuông báo vì chưa tạo được giọng đọc. Hãy dùng bản cài mới và kiểm tra giọng tiếng Việt đã tải trên thiết bị.');
+      showDialog('Đã lưu lịch hẹn', 'Lịch này sẽ dùng chuông báo vì chưa tạo được giọng đọc. Hãy dùng bản cài mới và kiểm tra giọng tiếng Việt đã tải trên thiết bị.');
     }
   };
 
@@ -239,9 +276,9 @@ export default function App() {
     if (voiceTarget) setIsVoiceModalOpen(false);
     AlarmManager.resumeForegroundReminders(updated, settings);
     if (!scheduled && Platform.OS !== 'web') {
-      Alert.alert('Đã lưu thay đổi', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
+      showDialog('Đã lưu thay đổi', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
     } else if (AlarmManager.voiceFallbackMeetingIds.has(edited.id)) {
-      Alert.alert('Đã lưu thay đổi', 'Lịch này sẽ dùng chuông báo vì chưa tạo được giọng đọc tiếng Việt trên thiết bị.');
+      showDialog('Đã lưu thay đổi', 'Lịch này sẽ dùng chuông báo vì chưa tạo được giọng đọc tiếng Việt trên thiết bị.');
     }
   };
 
@@ -253,7 +290,7 @@ export default function App() {
       setActiveAlarmMeeting(null);
       setMeetings(await StorageService.getMeetings());
     } catch {
-      Alert.alert('Chưa hoàn tất xác nhận', 'Không thể cập nhật lịch hoặc hủy thông báo. Bạn hãy thử lại.');
+      showDialog('Chưa hoàn tất xác nhận', 'Không thể cập nhật lịch hoặc hủy thông báo. Bạn hãy thử lại.');
     }
   };
 
@@ -270,7 +307,7 @@ export default function App() {
     try {
       updated = await StorageService.deleteMeeting(id);
     } catch {
-      Alert.alert('Chưa xóa được lịch', 'Không thể cập nhật dữ liệu trên thiết bị. Bạn hãy thử lại.');
+      showDialog('Chưa xóa được lịch', 'Không thể cập nhật dữ liệu trên thiết bị. Bạn hãy thử lại.');
       return;
     }
     setMeetings(updated);
@@ -283,7 +320,7 @@ export default function App() {
     try {
       await StorageService.saveSettings(newSettings);
     } catch {
-      Alert.alert('Chưa lưu được cài đặt', 'Không thể ghi dữ liệu trên thiết bị. Bạn hãy thử lại.');
+      showDialog('Chưa lưu được cài đặt', 'Không thể ghi dữ liệu trên thiết bị. Bạn hãy thử lại.');
       return;
     }
     setSettings(newSettings);
@@ -292,9 +329,9 @@ export default function App() {
     AlarmManager.resumeForegroundReminders(await StorageService.getMeetings(), newSettings);
     setIsSettingsModalOpen(false);
     if (!scheduled) {
-      Alert.alert('Đã lưu cài đặt', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
+      showDialog('Đã lưu cài đặt', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
     } else if (AlarmManager.voiceFallbackMeetingIds.size > 0) {
-      Alert.alert('Đã lưu cài đặt', 'Một số lịch vẫn dùng chuông vì chưa tạo được giọng đọc. Mở Cài đặt → Tùy chọn thêm → Thử thông báo khi khóa máy để kiểm tra.');
+      showDialog('Đã lưu cài đặt', 'Một số lịch vẫn dùng chuông vì chưa tạo được giọng đọc. Mở Cài đặt → Tùy chọn thêm → Thử thông báo khi khóa máy để kiểm tra.');
     }
   };
 
@@ -303,33 +340,40 @@ export default function App() {
     return meetings.filter((m) => isSameDay(new Date(m.meetingTime), selectedDate));
   }, [meetings, selectedDate]);
 
+  if (!fontsLoaded || hasSeenWelcome === null) return null;
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaProvider style={styles.safeArea}>
+    {hasSeenWelcome ? (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       <View style={styles.mainContainer}>
         {/* Header trên cùng: Nút back đưa lên trên hẳn và Tiêu đề "Lịch Họp" ở chính giữa */}
-        <Header
+        {activeTab === 'calendar' && viewMode !== 'MONTH' ? <Header
           backTitle={
             viewMode === 'DAY'
-              ? 'Lịch Tháng'
-              : viewMode === 'MONTH'
-              ? `${selectedDate.getFullYear()}`
+              ? calendarDisplayMode === 'week' ? 'Lịch tuần' : 'Lịch tháng'
               : null
           }
           onBack={
             viewMode === 'DAY'
               ? () => setViewMode('MONTH')
-              : viewMode === 'MONTH'
-              ? () => setViewMode('YEAR')
               : null
           }
           onOpenSettings={() => setIsSettingsModalOpen(true)}
           onOpenVoiceModal={handleOpenVoiceForSelectedDate}
-        />
+        /> : null}
 
         {/* NỘI DUNG CHÍNH: LEVEL 0 (XEM CẢ NĂM), LEVEL 1 (LỊCH CẢ THÁNG - MẶC ĐỊNH), LEVEL 2 (CHI TIẾT NGÀY) */}
-        {viewMode === 'YEAR' ? (
+        {activeTab === 'notes' ? <NotesScreen
+          today={today}
+          meetings={meetings}
+          onSimulateAlarm={handleSimulateAlarm}
+          onDelete={handleDeleteMeeting}
+          onEdit={setEditingMeeting}
+          onSendTestNotification={() => AlarmManager.sendInstantDailyBriefingNotification(meetings)}
+        /> : viewMode === 'YEAR' ? (
           /* LEVEL 0: MÀN HÌNH XEM CẢ NĂM (12 THÁNG) */
           <YearView
             today={today}
@@ -346,7 +390,10 @@ export default function App() {
             today={today}
             meetings={meetings}
             selectedDate={selectedDate}
+            displayMode={calendarDisplayMode}
+            onDisplayModeChange={setCalendarDisplayMode}
             onMonthChange={(date) => setSelectedDate(date)}
+            onBackToYear={() => setViewMode('YEAR')}
             onSelectDate={(date) => {
               // BẤM VÀO NGÀY TRÊN LỊCH -> MỞ RA CHI TIẾT NGÀY ĐÓ
               setSelectedDate(date);
@@ -385,15 +432,16 @@ export default function App() {
         )}
 
         {/* Nút bấm nổi ghi âm đơn giản ở đáy màn hình */}
-        <View style={styles.floatingButtonContainer}>
-          <TouchableOpacity
-            style={styles.floatingVoiceBtn}
-            activeOpacity={0.85}
-            onPress={handleOpenVoiceForSelectedDate}
-            accessibilityLabel="Nói để thêm hoặc sửa lịch họp"
-          >
-            <Ionicons name="mic" size={20} color="#FFFFFF" />
-            <Text style={styles.floatingVoiceBtnText}>Nói để thêm / sửa lịch</Text>
+        <FloatingMicrophoneButton onPress={handleOpenVoiceForSelectedDate} />
+        <View style={styles.footer}>
+          <TouchableOpacity style={styles.footerItem} onPress={() => setActiveTab('notes')} accessibilityLabel="Danh sách" accessibilityState={{ selected: activeTab === 'notes' }}>
+            <Ionicons name={activeTab === 'notes' ? 'document-text' : 'document-text-outline'} size={26} color={activeTab === 'notes' ? '#00ADFC' : '#111820'} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.footerItem} onPress={() => { setActiveTab('calendar'); setViewMode('MONTH'); }} accessibilityLabel="Lịch" accessibilityState={{ selected: activeTab === 'calendar' }}>
+            <Ionicons name={activeTab === 'calendar' ? 'calendar' : 'calendar-outline'} size={27} color={activeTab === 'calendar' ? '#00ADFC' : '#111820'} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.footerItem} onPress={() => setIsSettingsModalOpen(true)} accessibilityLabel="Cài đặt">
+            <Ionicons name="menu-outline" size={31} color="#111820" />
           </TouchableOpacity>
         </View>
       </View>
@@ -408,6 +456,7 @@ export default function App() {
       {/* Modal thu âm & xác nhận thông minh 1 BƯỚC DUY NHẤT */}
       {isVoiceModalOpen ? <VoiceInputModal
         visible={isVoiceModalOpen}
+        autoStart={autoStartVoice}
         initialText={initialVoiceText}
         selectedDate={selectedDate}
         settings={settings}
@@ -435,6 +484,8 @@ export default function App() {
         }
       /> : null}
     </SafeAreaView>
+    ) : <WelcomeScreen onContinue={handleWelcomeContinue} />}
+    </SafeAreaProvider>
   );
 }
 
@@ -454,38 +505,6 @@ const styles = StyleSheet.create({
   centerTimeline: {
     flex: 1,
   },
-  floatingButtonContainer: {
-    position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 24 : 14,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 99,
-  },
-  floatingVoiceBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#0A2540',
-    paddingVertical: 12,
-    paddingHorizontal: 22,
-    borderRadius: 22,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#0A2540',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.22,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 6,
-      },
-    }),
-  },
-  floatingVoiceBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
+  footer: { height: 68, flexDirection: 'row', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EDF0F3', borderTopLeftRadius: 18, borderTopRightRadius: 18 },
+  footerItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

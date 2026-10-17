@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Meeting } from '../types/meeting';
+import { useCancelMeetingDialog } from './AppDialog';
 
 import { isSameDay } from '../utils/dateUtils';
 
@@ -20,6 +21,7 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
   onEdit,
   showDateBadge = false,
 }) => {
+  const confirmCancelMeeting = useCancelMeetingDialog(onDelete);
   const meetingDate = new Date(meeting.meetingTime);
 
   const timeStr = meetingDate.toLocaleTimeString('vi-VN', {
@@ -97,7 +99,7 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
 
         <TouchableOpacity
           style={styles.deleteBtn}
-          onPress={() => onDelete(meeting.id)}
+          onPress={() => confirmCancelMeeting(meeting)}
           accessibilityLabel="Xóa"
         >
           <Ionicons name="close" size={18} color="#94A3B8" />
@@ -144,14 +146,12 @@ const styles = StyleSheet.create({
   },
   timeText: {
     color: '#0F172A',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 15, fontFamily: 'Roboto',
     letterSpacing: -0.3,
   },
   leadTimeText: {
     color: '#64748B',
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 11, fontFamily: 'Roboto',
     marginTop: 1,
   },
   dateBadgePill: {
@@ -164,8 +164,7 @@ const styles = StyleSheet.create({
   },
   dateBadgePillText: {
     color: '#1D4ED8',
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 10, fontFamily: 'Roboto',
   },
   contentColumn: {
     flex: 1,
@@ -173,13 +172,11 @@ const styles = StyleSheet.create({
   },
   titleText: {
     color: '#0F172A',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 15, fontFamily: 'Roboto',
   },
   subText: {
     color: '#64748B',
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 12, fontFamily: 'Roboto',
     marginTop: 2,
   },
   actionColumn: {

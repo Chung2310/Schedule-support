@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity, Platform, StatusBar } from 'react-native';
+import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface HeaderProps {
@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
             activeOpacity={0.7}
             accessibilityLabel={`Quay lại ${backTitle}`}
           >
-            <Ionicons name="chevron-back" size={20} color="#1D4ED8" />
+            <Ionicons name="chevron-back" size={20} color="#00ADFC" />
             <Text style={styles.backBtnText} numberOfLines={1}>
               {backTitle}
             </Text>
@@ -33,26 +33,24 @@ export const Header: React.FC<HeaderProps> = ({
         ) : null}
       </View>
 
-      {/* The supplied square logo has white padding around its centered wordmark. */}
       <View style={styles.centerBox}>
-        <Image
-          source={require('../../assets/logo.png')}
+        {onBack ? <Text style={styles.screenTitle}>Lịch theo giờ</Text> : <Image
+          source={require('../../assets/logo-brand.png')}
           style={styles.logo}
           resizeMode="contain"
           accessible
           accessibilityLabel="iGen Check"
-        />
+        />}
       </View>
 
-      {/* Cột phải: Nút Cài đặt */}
       <View style={styles.sideColRight}>
-        <TouchableOpacity
+        {!onBack ? <TouchableOpacity
           style={styles.settingsBtn}
           onPress={onOpenSettings}
           accessibilityLabel="Cài đặt"
         >
           <Ionicons name="settings-outline" size={20} color="#0A2540" />
-        </TouchableOpacity>
+        </TouchableOpacity> : null}
       </View>
     </View>
   );
@@ -62,8 +60,8 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     paddingHorizontal: 12,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 6 : 10,
-    paddingBottom: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
@@ -85,21 +83,20 @@ const styles = StyleSheet.create({
     paddingRight: 6,
   },
   backBtnText: {
-    fontSize: 15,
-    color: '#1D4ED8',
-    fontWeight: '700',
+    fontSize: 15, fontFamily: 'Roboto',
+    color: '#00ADFC',
   },
   centerBox: {
     flex: 1,
-    height: 36,
-    overflow: 'hidden',
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  screenTitle: { fontSize: 17, fontFamily: 'Roboto', color: '#0A2540' },
   logo: {
     width: '100%',
     maxWidth: 180,
-    aspectRatio: 1,
+    height: 50,
   },
   sideColRight: {
     width: 105,

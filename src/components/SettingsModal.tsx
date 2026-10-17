@@ -1,15 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import {
-  Alert, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput,
+  ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput,
   TouchableOpacity, View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path } from 'react-native-svg';
 import { AppSettings, DEFAULT_SETTINGS } from '../types/settings';
 import { SpeechService } from '../services/speechService';
 import { MeetingVoice, type NotificationVoice } from '../services/meetingVoice';
 import { PrivacyPolicyContent } from './PrivacyPolicyContent';
 import { legalDocuments, type LegalDocumentId } from '../content/legal-documents';
 import { normalizeClockTime } from '../utils/clockTime';
+import { useAppDialog } from './AppDialog';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -19,40 +22,56 @@ interface SettingsModalProps {
   onTestNotification?: (settings: AppSettings) => Promise<void>;
 }
 
+function voiceDisplayName(voice: NotificationVoice, index: number): string {
+  return /^vi[-_]vn[-_]/i.test(voice.name) ? `Giọng tiếng Việt ${index + 1}` : voice.name;
+}
+
+function voiceLocation(voice: NotificationVoice): string | null {
+  if (/(?:^|[-_])local$/i.test(voice.name)) return 'Trên thiết bị';
+  if (/(?:^|[-_])network$/i.test(voice.name)) return 'Qua mạng';
+  return null;
+}
+
 function MinuteOptions({ label, value, options, onChange }: {
   label: string;
-  value: number;
+  value: string;
   options: number[];
-  onChange: (value: number) => void;
+  onChange: (value: string) => void;
 }) {
-  const choices = options.includes(value) ? options : [...options, value].sort((a, b) => a - b);
   return <View style={styles.optionField}>
     <Text style={styles.rowLabel}>{label}</Text>
     <View style={styles.options}>
-      {choices.map((minutes) => <TouchableOpacity
+      {options.map((minutes) => <TouchableOpacity
         key={minutes}
-        style={[styles.option, value === minutes && styles.optionSelected]}
-        onPress={() => onChange(minutes)}
+        style={[styles.option, value === String(minutes) && styles.optionSelected]}
+        onPress={() => onChange(String(minutes))}
         accessibilityRole="radio"
         accessibilityLabel={label + ' ' + minutes + ' phút'}
-        accessibilityState={{ checked: value === minutes }}
+        accessibilityState={{ checked: value === String(minutes) }}
       >
-        <Text style={[styles.optionText, value === minutes && styles.optionTextSelected]}>{minutes} phút</Text>
+        <Text style={[styles.optionText, value === String(minutes) && styles.optionTextSelected]}>{minutes} phút</Text>
       </TouchableOpacity>)}
+    </View>
+    <View style={styles.customMinuteRow}>
+      <Text style={styles.voiceDetail}>Tự chọn</Text>
+      <TextInput style={styles.minuteInput} value={value} onChangeText={(text) => onChange(text.replace(/\D/g, '').slice(0, 4))}
+        keyboardType="number-pad" selectTextOnFocus maxLength={4} accessibilityLabel={label + ' số phút tùy chọn'} />
+      <Text style={styles.voiceDetail}>phút</Text>
     </View>
   </View>;
 }
 
-function TimeSetting({ label, value, onChange, invalid = false }: {
+function TimeSetting({ label, value, onChange, onPick, invalid = false }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  onPick: () => void;
   invalid?: boolean;
 }) {
   const [hour = '', minute = ''] = value.split(':');
   return <View style={styles.row}>
     <Text style={styles.rowLabel}>{label}</Text>
-    <View style={styles.timeFields}>
+    {Platform.OS === 'web' ? <View style={styles.timeFields}>
       <TextInput style={[styles.timeInput, invalid && styles.invalidInput]} value={hour}
         onChangeText={(text) => onChange(text.replace(/\D/g, '').slice(0, 2) + ':' + minute)}
         keyboardType="number-pad" maxLength={2} selectTextOnFocus placeholder="HH" accessibilityLabel={'Giờ ' + label.toLowerCase()} />
@@ -60,8 +79,22 @@ function TimeSetting({ label, value, onChange, invalid = false }: {
       <TextInput style={[styles.timeInput, invalid && styles.invalidInput]} value={minute}
         onChangeText={(text) => onChange(hour + ':' + text.replace(/\D/g, '').slice(0, 2))}
         keyboardType="number-pad" maxLength={2} selectTextOnFocus placeholder="mm" accessibilityLabel={'Phút ' + label.toLowerCase()} />
-    </View>
+    </View> : <TouchableOpacity style={[styles.timePickerButton, invalid && styles.invalidInput]} onPress={onPick}
+      accessibilityRole="button" accessibilityLabel={'Chọn giờ ' + label.toLowerCase()}>
+      <Text style={styles.timePickerText}>{value}</Text>
+      <Ionicons name="time-outline" size={18} color="#00ADFC" />
+    </TouchableOpacity>}
   </View>;
+}
+
+type TimeTarget = 'briefing' | 'morning' | 'afternoon';
+
+function pickerDate(value: string): Date {
+  const normalized = normalizeClockTime(value) ?? '07:00';
+  const [hours, minutes] = normalized.split(':').map(Number);
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return date;
 }
 
 const documentLabels: Record<LegalDocumentId, string> = {
@@ -73,14 +106,18 @@ const documentLabels: Record<LegalDocumentId, string> = {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   visible, settings, onClose, onSave, onTestNotification,
 }) => {
-  const [leadTime, setLeadTime] = useState(settings.defaultAdvanceNoticeMinutes);
-  const [repeatInterval, setRepeatInterval] = useState(settings.defaultRepeatIntervalMinutes);
+  const showDialog = useAppDialog();
+  const [leadTime, setLeadTime] = useState(String(settings.defaultAdvanceNoticeMinutes));
+  const [repeatInterval, setRepeatInterval] = useState(String(settings.defaultRepeatIntervalMinutes));
+  const [minuteError, setMinuteError] = useState('');
   const [hour, setHour] = useState((settings.dailyBriefingTime ?? DEFAULT_SETTINGS.dailyBriefingTime).split(':')[0] ?? '07');
   const [minute, setMinute] = useState((settings.dailyBriefingTime ?? DEFAULT_SETTINGS.dailyBriefingTime).split(':')[1] ?? '00');
   const [timeError, setTimeError] = useState('');
   const [morningTime, setMorningTime] = useState(settings.defaultMorningTime ?? DEFAULT_SETTINGS.defaultMorningTime);
   const [afternoonTime, setAfternoonTime] = useState(settings.defaultAfternoonTime ?? DEFAULT_SETTINGS.defaultAfternoonTime);
   const [daypartTimeError, setDaypartTimeError] = useState<'morning' | 'afternoon' | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<TimeTarget | null>(null);
+  const [pickerValue, setPickerValue] = useState(() => pickerDate(settings.dailyBriefingTime));
   const [stopOnMeetingStart, setStopOnMeetingStart] = useState(settings.stopOnMeetingStart);
   const [speechVoice, setSpeechVoice] = useState(settings.speechVoice);
   const [voices, setVoices] = useState<NotificationVoice[]>([]);
@@ -95,6 +132,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const mountedRef = useRef(false);
   const previewRef = useRef(0);
   const busy = saving || preparingTest;
+
+  const openTimePicker = (target: TimeTarget) => {
+    const value = target === 'briefing' ? hour + ':' + minute : target === 'morning' ? morningTime : afternoonTime;
+    setPickerValue(pickerDate(value));
+    setPickerTarget(target);
+  };
+
+  const applyPickerValue = (date: Date) => {
+    const nextHour = String(date.getHours()).padStart(2, '0');
+    const nextMinute = String(date.getMinutes()).padStart(2, '0');
+    if (pickerTarget === 'briefing') {
+      setHour(nextHour);
+      setMinute(nextMinute);
+      setTimeError('');
+    } else if (pickerTarget === 'morning') {
+      setMorningTime(nextHour + ':' + nextMinute);
+      setDaypartTimeError(null);
+    } else if (pickerTarget === 'afternoon') {
+      setAfternoonTime(nextHour + ':' + nextMinute);
+      setDaypartTimeError(null);
+    }
+  };
 
   useEffect(() => {
     mountedRef.current = true;
@@ -142,7 +201,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         onError: () => {
           finish();
           if (mountedRef.current && preview === previewRef.current) {
-            Alert.alert('Chưa phát được giọng đọc', 'Hãy chọn lại giọng tiếng Việt trên thiết bị.');
+            showDialog('Chưa phát được giọng đọc', 'Hãy chọn lại giọng tiếng Việt trên thiết bị.');
           }
         },
       });
@@ -159,11 +218,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       await stopPreview();
       await onTestNotification({ ...settings, speechVoice });
       if (mountedRef.current) {
-        Alert.alert('Đã đặt thông báo thử', 'Khóa màn hình để nghe sau 15 giây. Bật chuông và tắt chế độ Tập trung.');
+        showDialog('Đã đặt thông báo thử', 'Khóa màn hình để nghe sau 15 giây. Bật chuông và tắt chế độ Tập trung.');
       }
     } catch (error) {
       if (mountedRef.current) {
-        Alert.alert('Chưa đặt được thông báo thử', error instanceof Error ? error.message : 'Hãy thử lại.');
+        showDialog('Chưa đặt được thông báo thử', error instanceof Error ? error.message : 'Hãy thử lại.');
       }
     } finally {
       busyRef.current = false;
@@ -173,6 +232,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleDone = async () => {
     if (busyRef.current) return;
+    const advanceMinutes = Number(leadTime);
+    const repeatMinutes = Number(repeatInterval);
+    if (!Number.isInteger(advanceMinutes) || advanceMinutes < 1 || advanceMinutes > 1440 ||
+        !Number.isInteger(repeatMinutes) || repeatMinutes < 1 || repeatMinutes > 1440) {
+      setMinuteError('Nhập số phút từ 1 đến 1440 cho cả hai mục.');
+      return;
+    }
     if (!/^\d{1,2}$/.test(hour) || !/^\d{1,2}$/.test(minute) || Number(hour) > 23 || Number(minute) > 59) {
       setTimeError('Nhập giờ từ 00–23, phút từ 00–59.');
       return;
@@ -188,8 +254,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       dailyBriefingTime: hour.padStart(2, '0') + ':' + minute.padStart(2, '0'),
       defaultMorningTime: morning,
       defaultAfternoonTime: afternoon,
-      defaultAdvanceNoticeMinutes: leadTime,
-      defaultRepeatIntervalMinutes: repeatInterval,
+      defaultAdvanceNoticeMinutes: advanceMinutes,
+      defaultRepeatIntervalMinutes: repeatMinutes,
       stopOnMeetingStart,
       speechVoice,
     };
@@ -199,7 +265,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (next.dailyBriefingTime === settings.dailyBriefingTime &&
           morning === (settings.defaultMorningTime ?? DEFAULT_SETTINGS.defaultMorningTime) &&
           afternoon === (settings.defaultAfternoonTime ?? DEFAULT_SETTINGS.defaultAfternoonTime) &&
-          leadTime === settings.defaultAdvanceNoticeMinutes && repeatInterval === settings.defaultRepeatIntervalMinutes &&
+          advanceMinutes === settings.defaultAdvanceNoticeMinutes && repeatMinutes === settings.defaultRepeatIntervalMinutes &&
           stopOnMeetingStart === settings.stopOnMeetingStart && speechVoice === settings.speechVoice) {
         onClose();
         return;
@@ -207,7 +273,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setSaving(true);
       await onSave(next);
     } catch {
-      if (mountedRef.current) Alert.alert('Chưa lưu được cài đặt', 'Hãy giữ ứng dụng mở và thử lại.');
+      if (mountedRef.current) showDialog('Chưa lưu được cài đặt', 'Hãy giữ ứng dụng mở và thử lại.');
     } finally {
       busyRef.current = false;
       if (mountedRef.current) setSaving(false);
@@ -223,61 +289,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const selectedVoice = voices.find((voice) => voice.identifier === speechVoice);
   const missingVoice = !loadingVoices && !!speechVoice && !selectedVoice;
-  const voiceName = !speechVoice ? 'Tự động' : selectedVoice?.name ?? (loadingVoices ? 'Đang tải…' : 'Chọn lại giọng');
+  const voiceName = !speechVoice ? 'Tự động' : selectedVoice
+    ? voiceDisplayName(selectedVoice, voices.indexOf(selectedVoice))
+    : loadingVoices ? 'Đang tải…' : 'Chọn lại giọng';
 
-  return <Modal visible={visible} transparent animationType="slide" onRequestClose={() => {
+  return <><Modal visible={visible} transparent animationType="slide" onRequestClose={() => {
     if (busyRef.current) return;
-    if (legalDocument) setLegalDocument(null);
+    if (pickerTarget) setPickerTarget(null);
+    else if (legalDocument) setLegalDocument(null);
     else void handleDone();
   }}>
     <View style={styles.backdrop}>
       <View style={styles.sheet}>
         {legalDocument ? <PrivacyPolicyContent document={legalDocument} onBack={() => setLegalDocument(null)} /> : <>
+          <View style={styles.dragHandle} />
           <View style={styles.header}>
             <Text accessibilityRole="header" style={styles.title}>Cài đặt</Text>
             <TouchableOpacity style={[styles.doneButton, busy && styles.disabled]} onPress={() => void handleDone()}
-              disabled={busy} accessibilityRole="button" accessibilityState={{ disabled: busy, busy }}>
-              <Text style={styles.doneText}>{saving ? 'Đang lưu…' : 'Xong'}</Text>
+              disabled={busy} hitSlop={6} accessibilityRole="button" accessibilityLabel={saving ? 'Đang lưu cài đặt' : 'Lưu và đóng cài đặt'} accessibilityState={{ disabled: busy, busy }}>
+              {saving ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path d="M5 12.5 10 17l9-10" stroke="#FFFFFF" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>}
             </TouchableOpacity>
           </View>
           {saving ? <Text accessibilityLiveRegion="polite" style={styles.hint}>Đang cập nhật nhắc lịch. Giữ ứng dụng mở đến khi xong.</Text> : null}
           <ScrollView style={styles.scroll} contentContainerStyle={styles.content} pointerEvents={busy ? 'none' : 'auto'}
             keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
-            <Text accessibilityRole="header" style={styles.sectionTitle}>NHẮC LỊCH</Text>
+            <Text accessibilityRole="header" style={styles.sectionTitle}>Nhắc lịch</Text>
             <View style={styles.card}>
-              <View style={styles.row}>
-                <Text style={styles.rowLabel}>Tổng hợp mỗi ngày</Text>
-                <View style={styles.timeFields}>
-                  <TextInput style={[styles.timeInput, !!timeError && styles.invalidInput]} value={hour}
-                    onChangeText={(value) => { setHour(value.replace(/\D/g, '').slice(0, 2)); setTimeError(''); }}
-                    keyboardType="number-pad" maxLength={2} selectTextOnFocus placeholder="07" accessibilityLabel="Giờ tổng hợp lịch" />
-                  <Text style={styles.timeSeparator}>:</Text>
-                  <TextInput style={[styles.timeInput, !!timeError && styles.invalidInput]} value={minute}
-                    onChangeText={(value) => { setMinute(value.replace(/\D/g, '').slice(0, 2)); setTimeError(''); }}
-                    keyboardType="number-pad" maxLength={2} selectTextOnFocus placeholder="00" accessibilityLabel="Phút tổng hợp lịch" />
-                </View>
-              </View>
+              <TimeSetting label="Tổng hợp mỗi ngày" value={hour + ':' + minute} invalid={!!timeError}
+                onPick={() => openTimePicker('briefing')}
+                onChange={(value) => { const [nextHour = '', nextMinute = ''] = value.split(':'); setHour(nextHour); setMinute(nextMinute); setTimeError(''); }} />
               {timeError ? <Text accessibilityLiveRegion="polite" style={styles.error}>{timeError}</Text> : null}
               <View style={styles.divider} />
-              <MinuteOptions label="Báo trước" value={leadTime} options={[5, 10, 15, 30]} onChange={setLeadTime} />
+              <MinuteOptions label="Báo trước" value={leadTime} options={[5, 10, 15, 30]}
+                onChange={(value) => { setLeadTime(value); setMinuteError(''); }} />
               <View style={styles.divider} />
-              <MinuteOptions label="Nhắc lại mỗi" value={repeatInterval} options={[2, 5, 10]} onChange={setRepeatInterval} />
+              <MinuteOptions label="Nhắc lại mỗi" value={repeatInterval} options={[2, 5, 10]}
+                onChange={(value) => { setRepeatInterval(value); setMinuteError(''); }} />
+              {minuteError ? <Text accessibilityLiveRegion="polite" style={styles.error}>{minuteError}</Text> : null}
             </View>
 
-            <Text accessibilityRole="header" style={styles.sectionTitle}>GIỜ MẶC ĐỊNH THEO BUỔI</Text>
+            <Text accessibilityRole="header" style={styles.sectionTitle}>Giờ mặc định theo buổi</Text>
             <View style={styles.card}>
               <TimeSetting label="Buổi sáng" value={morningTime} invalid={daypartTimeError === 'morning'}
+                onPick={() => openTimePicker('morning')}
                 onChange={(value) => { setMorningTime(value); setDaypartTimeError(null); }} />
               <View style={styles.divider} />
               <TimeSetting label="Buổi chiều" value={afternoonTime} invalid={daypartTimeError === 'afternoon'}
+                onPick={() => openTimePicker('afternoon')}
                 onChange={(value) => { setAfternoonTime(value); setDaypartTimeError(null); }} />
               {daypartTimeError ? <Text accessibilityLiveRegion="polite" style={styles.error}>
-                Giờ buổi {daypartTimeError === 'morning' ? 'sáng' : 'chiều'} chưa hợp lệ. Nhập giờ 00–23, phút 00–59.
+                Giờ buổi {daypartTimeError === 'morning' ? 'sáng' : 'chiều'} chưa hợp lệ. Chọn giờ từ 00:00 đến 23:59.
               </Text> : null}
               <Text style={styles.hint}>Dùng khi bạn chỉ nói “sáng” hoặc “chiều” mà chưa nêu giờ cụ thể.</Text>
             </View>
 
-            <Text accessibilityRole="header" style={styles.sectionTitle}>GIỌNG ĐỌC</Text>
+            <Text accessibilityRole="header" style={styles.sectionTitle}>Giọng đọc</Text>
             <View style={styles.card}>
               <TouchableOpacity style={styles.row} onPress={() => setVoiceListOpen((open) => !open)}
                 accessibilityRole="button" accessibilityLabel={'Giọng đọc: ' + voiceName} accessibilityState={{ expanded: voiceListOpen }}>
@@ -291,16 +359,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <TouchableOpacity style={styles.voiceOption} onPress={() => chooseVoice()}
                   accessibilityRole="radio" accessibilityState={{ checked: !speechVoice }}>
                   <Text style={styles.voiceName}>Tự động theo thiết bị</Text>
-                  <Ionicons name={!speechVoice ? 'radio-button-on' : 'radio-button-off'} size={20} color="#0A2540" />
+                  <Ionicons name={!speechVoice ? 'radio-button-on' : 'radio-button-off'} size={20} color={!speechVoice ? '#00ADFC' : '#8EA3B0'} />
                 </TouchableOpacity>
-                {loadingVoices ? <Text style={styles.hint}>Đang tải giọng đọc…</Text> : voices.map((voice) => <TouchableOpacity
+                {loadingVoices ? <Text style={styles.hint}>Đang tải giọng đọc…</Text> : voices.map((voice, index) => <TouchableOpacity
                   key={voice.identifier} style={styles.voiceOption} onPress={() => chooseVoice(voice.identifier)}
-                  accessibilityRole="radio" accessibilityState={{ checked: speechVoice === voice.identifier }}>
+                  accessibilityRole="radio" accessibilityLabel={voiceDisplayName(voice, index)} accessibilityState={{ checked: speechVoice === voice.identifier }}>
                   <View style={styles.voiceInfo}>
-                    <Text style={styles.voiceName}>{voice.name}</Text>
-                    {voice.quality === 'Enhanced' ? <Text style={styles.voiceDetail}>Chất lượng cao</Text> : null}
+                    <Text style={styles.voiceName}>{voiceDisplayName(voice, index)}</Text>
+                    {voiceLocation(voice) || voice.quality === 'Enhanced' ? <Text style={styles.voiceDetail}>
+                      {[voiceLocation(voice), voice.quality === 'Enhanced' ? 'Chất lượng cao' : null].filter(Boolean).join(' · ')}
+                    </Text> : null}
                   </View>
-                  <Ionicons name={speechVoice === voice.identifier ? 'radio-button-on' : 'radio-button-off'} size={20} color="#0A2540" />
+                  <Ionicons name={speechVoice === voice.identifier ? 'radio-button-on' : 'radio-button-off'} size={20} color={speechVoice === voice.identifier ? '#00ADFC' : '#8EA3B0'} />
                 </TouchableOpacity>)}
                 {!loadingVoices && !voices.length ? <Text style={styles.hint}>{Platform.OS === 'android'
                   ? 'Tải giọng tiếng Việt trong cài đặt chuyển văn bản thành giọng nói của Android.'
@@ -326,7 +396,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <View style={styles.row}>
                   <Text style={styles.flexLabel}>Dừng nhắc khi đến giờ hẹn</Text>
                   <Switch value={stopOnMeetingStart} onValueChange={setStopOnMeetingStart} accessibilityLabel="Dừng nhắc khi đến giờ hẹn"
-                    trackColor={{ false: '#CBD5E1', true: '#0A2540' }} thumbColor="#FFFFFF" />
+                    trackColor={{ false: '#CBD5E1', true: '#00ADFC' }} thumbColor="#FFFFFF" />
                 </View>
                 {onTestNotification && Platform.OS !== 'web' ? <>
                   <View style={styles.divider} />
@@ -337,7 +407,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </> : null}
                 {Platform.OS === 'ios' ? <>
                   <View style={styles.divider} />
-                  <TouchableOpacity style={styles.row} accessibilityRole="button" onPress={() => Alert.alert('Thêm widget Lịch hôm nay',
+                  <TouchableOpacity style={styles.row} accessibilityRole="button" onPress={() => showDialog('Thêm widget Lịch hôm nay',
                     'Màn hình chính: nhấn giữ chỗ trống → Sửa → Thêm tiện ích → iGen Check.\n\nMàn hình khóa: nhấn giữ → Tùy chỉnh → Thêm tiện ích → iGen Check.\n\nWidget hiển thị lịch trong ngày và tự cập nhật. Nội dung lịch có thể được nhìn thấy trên màn hình khóa.')}>
                     <Text style={styles.flexLabel}>Cách thêm widget</Text>
                     <Ionicons name="help-circle-outline" size={20} color="#0A2540" />
@@ -347,7 +417,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </View>
             {preparingTest ? <Text accessibilityLiveRegion="polite" style={styles.hint}>Đang chuẩn bị thông báo thử…</Text> : null}
 
-            <Text accessibilityRole="header" style={styles.sectionTitle}>THÔNG TIN</Text>
+            <Text accessibilityRole="header" style={styles.sectionTitle}>Thông tin</Text>
             <View style={styles.card}>
               {(Object.keys(legalDocuments) as LegalDocumentId[]).map((id, index) => <React.Fragment key={id}>
                 {index ? <View style={styles.divider} /> : null}
@@ -356,52 +426,91 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Ionicons name="chevron-forward" size={17} color="#64748B" />
                 </TouchableOpacity>
               </React.Fragment>)}
+              <View style={styles.divider} />
             </View>
           </ScrollView>
         </>}
       </View>
     </View>
-  </Modal>;
+  </Modal>
+    {Platform.OS === 'android' && pickerTarget ? <DateTimePicker key={pickerTarget} value={pickerValue}
+      mode="time" display="clock" presentation="dialog" is24Hour accentColor="#00ADFC"
+      positiveButton={{ label: 'Chọn' }} negativeButton={{ label: 'Hủy' }}
+      onValueChange={(_event, date) => { applyPickerValue(date); setPickerTarget(null); }}
+      onDismiss={() => setPickerTarget(null)} /> : null}
+    {Platform.OS === 'ios' && pickerTarget ? <Modal transparent visible animationType="fade" onRequestClose={() => setPickerTarget(null)}>
+      <View style={styles.pickerBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setPickerTarget(null)} accessibilityRole="button" accessibilityLabel="Hủy chọn giờ" />
+        <View style={styles.pickerSheet}>
+          <Text style={styles.pickerHeading}>Chọn giờ</Text>
+          <DateTimePicker value={pickerValue} mode="time" display="spinner" locale="vi_VN" is24Hour
+            themeVariant="light" accentColor="#00ADFC" onValueChange={(_event, date) => setPickerValue(date)} />
+          <View style={styles.pickerActions}>
+            <TouchableOpacity style={styles.cancelPicker} onPress={() => setPickerTarget(null)} accessibilityRole="button">
+              <Text style={styles.cancelPickerText}>Hủy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.confirmPicker} onPress={() => { applyPickerValue(pickerValue); setPickerTarget(null); }} accessibilityRole="button">
+              <Text style={styles.confirmPickerText}>Chọn</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal> : null}
+  </>;
 };
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(10,25,47,0.5)', justifyContent: 'flex-end' },
-  sheet: { maxHeight: '90%', backgroundColor: '#F8FAFC', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingTop: 16, paddingBottom: Platform.OS === 'ios' ? 32 : 20 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  title: { color: '#0A2540', fontSize: 21, fontWeight: '800' },
-  doneButton: { minHeight: 44, minWidth: 64, paddingHorizontal: 16, borderRadius: 22, backgroundColor: '#0A2540',
+  backdrop: { flex: 1, backgroundColor: 'rgba(10,25,47,0.46)', justifyContent: 'flex-end' },
+  sheet: { maxHeight: '90%', backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: 20, paddingTop: 12, paddingBottom: Platform.OS === 'ios' ? 32 : 20 },
+  dragHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: '#CDD9E2', alignSelf: 'center', marginBottom: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  title: { color: '#0A2540', fontSize: 22, fontFamily: 'Roboto' },
+  doneButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#00ADFC',
     alignItems: 'center', justifyContent: 'center' },
-  doneText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   disabled: { opacity: 0.55 },
   scroll: { flexShrink: 1 },
-  content: { paddingBottom: 8 },
-  sectionTitle: { color: '#64748B', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 14, marginBottom: 8, marginLeft: 4 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 16, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+  content: { paddingBottom: 16 },
+  sectionTitle: { color: '#41748F', fontSize: 13, fontFamily: 'Roboto', letterSpacing: 0.2, marginTop: 18, marginBottom: 10, marginLeft: 4 },
+  card: { backgroundColor: '#F8FBFD', borderRadius: 18, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5F0F5' },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 52, paddingVertical: 10 },
-  rowLabel: { color: '#1E293B', fontSize: 14, fontWeight: '600', flexShrink: 1 },
-  flexLabel: { color: '#1E293B', fontSize: 14, fontWeight: '500', flex: 1 },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#E2E8F0' },
+  rowLabel: { color: '#1E293B', fontSize: 14, fontFamily: 'Roboto', flexShrink: 1 },
+  flexLabel: { color: '#1E293B', fontSize: 14, fontFamily: 'Roboto', flex: 1 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#DCECF4' },
   timeFields: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  timeInput: { minHeight: 44, width: 42, borderRadius: 10, borderWidth: 1, borderColor: '#CBD5E1',
-    backgroundColor: '#F8FAFC', color: '#0A2540', fontSize: 16, fontWeight: '700', textAlign: 'center', paddingHorizontal: 3 },
-  timeSeparator: { color: '#0A2540', fontSize: 16, fontWeight: '700' },
+  timeInput: { minHeight: 44, width: 42, borderRadius: 12, borderWidth: 1, borderColor: '#CCE3EF',
+    backgroundColor: '#FFFFFF', color: '#0A2540', fontSize: 16, fontFamily: 'Roboto', textAlign: 'center', paddingHorizontal: 3 },
+  timeSeparator: { color: '#0A2540', fontSize: 16, fontFamily: 'Roboto',  },
+  timePickerButton: { minWidth: 106, minHeight: 44, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1,
+    borderColor: '#CCE3EF', backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  timePickerText: { color: '#0A2540', fontSize: 16, fontFamily: 'Roboto' },
   invalidInput: { borderColor: '#B91C1C' },
   optionField: { paddingVertical: 12, gap: 8 },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  option: { flexGrow: 1, minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
-  optionSelected: { backgroundColor: '#0A2540' },
-  optionText: { color: '#64748B', fontSize: 13, fontWeight: '600' },
+  option: { flexGrow: 1, minHeight: 44, paddingHorizontal: 10, borderRadius: 13, backgroundColor: '#EAF4F9', alignItems: 'center', justifyContent: 'center' },
+  optionSelected: { backgroundColor: '#00ADFC' },
+  optionText: { color: '#64748B', fontSize: 13, fontFamily: 'Roboto',  },
   optionTextSelected: { color: '#FFFFFF' },
+  customMinuteRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 3 },
+  minuteInput: { width: 72, minHeight: 44, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1,
+    borderColor: '#CCE3EF', backgroundColor: '#FFFFFF', color: '#0A2540', fontSize: 16, fontFamily: 'Roboto', textAlign: 'center' },
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(10,25,47,0.46)', justifyContent: 'flex-end' },
+  pickerSheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 32 },
+  pickerHeading: { color: '#0A2540', fontSize: 20, fontFamily: 'Roboto', marginBottom: 12 },
+  pickerActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  cancelPicker: { flex: 1, minHeight: 48, backgroundColor: '#EF4444', borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  cancelPickerText: { color: '#FFFFFF', fontSize: 15, fontFamily: 'Roboto' },
+  confirmPicker: { flex: 1, minHeight: 48, backgroundColor: '#00ADFC', borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  confirmPickerText: { color: '#FFFFFF', fontSize: 15, fontFamily: 'Roboto' },
   rowValue: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexShrink: 1 },
-  valueText: { color: '#64748B', fontSize: 13, flexShrink: 1 },
+  valueText: { color: '#64748B', fontSize: 13, fontFamily: 'Roboto', flexShrink: 1 },
   voiceList: { paddingBottom: 8 },
   voiceOption: { minHeight: 48, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     gap: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E2E8F0' },
   voiceInfo: { flex: 1, gap: 2 },
-  voiceName: { color: '#1E293B', fontSize: 14, flexShrink: 1 },
-  voiceDetail: { color: '#64748B', fontSize: 12 },
-  actionText: { color: '#0A2540', fontSize: 14, fontWeight: '600' },
-  hint: { color: '#64748B', fontSize: 12, lineHeight: 18, paddingVertical: 8 },
-  error: { color: '#B91C1C', fontSize: 12, lineHeight: 18, paddingBottom: 10 },
+  voiceName: { color: '#1E293B', fontSize: 14, fontFamily: 'Roboto', flexShrink: 1 },
+  voiceDetail: { color: '#64748B', fontSize: 12, fontFamily: 'Roboto' },
+  actionText: { color: '#008FCC', fontSize: 14, fontFamily: 'Roboto' },
+  hint: { color: '#64748B', fontSize: 12, fontFamily: 'Roboto', lineHeight: 18, paddingVertical: 8 },
+  error: { color: '#B91C1C', fontSize: 12, fontFamily: 'Roboto', lineHeight: 18, paddingBottom: 10 },
 });
