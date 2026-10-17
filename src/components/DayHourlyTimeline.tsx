@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Meeting } from '../types/meeting';
 import { isSameDay, formatDateKey } from '../utils/dateUtils';
+import { useCurrentMinute } from '../hooks/useLocalDay';
 
 interface DayHourlyTimelineProps {
   date: Date;
@@ -59,7 +60,7 @@ export const DayHourlyTimeline: React.FC<DayHourlyTimelineProps> = ({
     ]).start();
   }, [dateKey, slideAnim, opacityAnim]);
 
-  const now = new Date();
+  const now = useCurrentMinute();
   const isToday = isSameDay(date, now);
   const currentHour = now.getHours();
   const currentMinute = now.getMinutes();

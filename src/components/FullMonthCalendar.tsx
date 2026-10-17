@@ -18,6 +18,7 @@ import {
 import { MeetingCard } from './MeetingCard';
 
 interface FullMonthCalendarProps {
+  today: Date;
   meetings: Meeting[];
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
@@ -32,6 +33,7 @@ interface FullMonthCalendarProps {
 const WEEK_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 
 export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
+  today,
   meetings,
   selectedDate,
   onSelectDate,
@@ -56,15 +58,18 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
       map.set(dateKey, existing);
     }
     return map;
-  }, [meetings]);
+    // Local Date fields change with the device timezone; today invalidates this cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetings, today]);
 
   // Sinh toàn bộ các ngày trong tháng (Full Month Grid)
   const days: CalendarDay[] = useMemo(() => {
     return generateMonthDays(
       currentMonthDate.getFullYear(),
-      currentMonthDate.getMonth()
+      currentMonthDate.getMonth(),
+      today
     );
-  }, [currentMonthDate]);
+  }, [currentMonthDate, today]);
 
   // Điều hướng tháng
   const handlePrevMonth = () => {
@@ -90,7 +95,6 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
 
   // Phân chia lịch trình: Hôm nay (tách theo Buổi Sáng / Chiều / Tối) và Lịch các ngày tới
   const { todayMeetings, morningMeetings, afternoonMeetings, eveningMeetings, futureMeetings } = useMemo(() => {
-    const today = new Date();
     const sorted = [...meetings].sort(
       (a, b) => new Date(a.meetingTime).getTime() - new Date(b.meetingTime).getTime()
     );
@@ -128,9 +132,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
       eveningMeetings: evening,
       futureMeetings: future.slice(0, 5),
     };
-  }, [meetings]);
-
-  const today = new Date();
+  }, [meetings, today]);
   const dayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
   const todayDayName = dayNames[today.getDay()];
   const todayFormattedDate = `${todayDayName}, ${today.getDate()} tháng ${today.getMonth() + 1}`;
@@ -171,6 +173,9 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
         <Text style={styles.monthTitleText}>
           {monthTitleOnly} {currentMonthDate.getFullYear()}
         </Text>
+        <TouchableOpacity onPress={() => onMonthChange(new Date(today))} accessibilityRole="button" accessibilityLabel="Quay về hôm nay" style={styles.todayButton}>
+          <Text style={styles.todayButtonText}>Hôm nay</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Hàng Tiêu đề Thứ (T2 -> CN) */}
@@ -204,11 +209,13 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
               style={styles.dayCell}
               onPress={() => onSelectDate(item.date)}
               activeOpacity={0.7}
+              accessibilityLabel={`${item.date.getDate()}/${item.date.getMonth() + 1}/${item.date.getFullYear()}${item.isToday ? ', hôm nay' : ''}${hasMeetings ? `, ${eventInfo.count} cuộc hẹn` : ''}`}
             >
               <View
                 style={[
                   styles.dayCircle,
                   hasMeetings && styles.dayCircleHasMeetings,
+                  item.isToday && styles.dayCircleToday,
                 ]}
               >
                 <Text
@@ -216,6 +223,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                     styles.dayNumber,
                     !item.isCurrentMonth && styles.dayNumberDimmed,
                     hasMeetings && styles.dayNumberHasMeetings,
+                    item.isToday && styles.dayNumberToday,
                   ]}
                 >
                   {item.date.getDate()}
@@ -403,6 +411,9 @@ const styles = StyleSheet.create({
     paddingBottom: 90,
   },
   monthHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 4,
     paddingBottom: 8,
@@ -459,6 +470,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     borderWidth: 1.5,
     borderColor: '#93C5FD',
+  },
+  dayCircleToday: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+    borderWidth: 1.5,
+  },
+  dayNumberToday: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  todayButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#EFF6FF',
+  },
+  todayButtonText: {
+    color: '#2563EB',
+    fontSize: 13,
+    fontWeight: '700',
   },
   dayNumber: {
     fontSize: 14.5,

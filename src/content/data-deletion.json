@@ -1,7 +1,7 @@
 {
   "title": "Xóa dữ liệu",
   "appName": "iGen Check",
-  "updatedAt": "16/10/2026",
+  "updatedAt": "17/10/2026",
   "intro": "iGen Check không có tài khoản và không lưu lịch trên máy chủ của đội phát triển. Bạn có thể xóa dữ liệu trực tiếp trên thiết bị theo hướng dẫn dưới đây.",
   "sections": [
     {
@@ -10,7 +10,7 @@
     },
     {
       "title": "2. Xóa toàn bộ dữ liệu trên điện thoại",
-      "paragraphs": ["Trên Android: mở Cài đặt thiết bị, chọn Ứng dụng, chọn iGen Check, vào mục bộ nhớ và chọn xóa dữ liệu ứng dụng. Tên mục có thể khác nhau tùy thiết bị. Xóa bộ nhớ đệm không đồng nghĩa với xóa dữ liệu.", "Trên iOS: mở Cài đặt, chọn Cài đặt chung, Dung lượng iPhone/iPad, chọn iGen Check rồi chọn Xóa ứng dụng. Chức năng Gỡ bỏ ứng dụng (Offload App) giữ lại tài liệu và dữ liệu, nên không phù hợp nếu bạn muốn xóa toàn bộ dữ liệu cục bộ.", "Việc xóa dữ liệu hoặc xóa ứng dụng sẽ loại bỏ lịch và cài đặt cục bộ. Nút Đặt lại mặc định trong Cài đặt ứng dụng chỉ đặt lại các tùy chọn nhắc lịch, không xóa lịch hẹn."]
+      "paragraphs": ["Trên Android: mở Cài đặt thiết bị, chọn Ứng dụng, chọn iGen Check, vào mục bộ nhớ và chọn xóa dữ liệu ứng dụng. Tên mục có thể khác nhau tùy thiết bị. Xóa bộ nhớ đệm không đồng nghĩa với xóa dữ liệu.", "Trên iOS: mở Cài đặt, chọn Cài đặt chung, Dung lượng iPhone/iPad, chọn iGen Check rồi chọn Xóa ứng dụng. Chức năng Gỡ bỏ ứng dụng (Offload App) giữ lại tài liệu và dữ liệu, nên không phù hợp nếu bạn muốn xóa toàn bộ dữ liệu cục bộ.", "Việc xóa dữ liệu hoặc xóa ứng dụng sẽ loại bỏ lịch và cài đặt cục bộ. Thay đổi các tùy chọn nhắc lịch trong ứng dụng không xóa lịch hẹn."]
     },
     {
       "title": "3. Xóa dữ liệu trên web",
