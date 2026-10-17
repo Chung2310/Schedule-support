@@ -16,11 +16,13 @@ import {
   isSameDay,
 } from '../utils/dateUtils';
 import { MeetingCard } from './MeetingCard';
+import { getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
 import { useAppDialog } from './AppDialog';
 
 interface FullMonthCalendarProps {
   today: Date;
   meetings: Meeting[];
+  calendarColor: string;
   selectedDate: Date;
   displayMode: 'month' | 'week';
   onDisplayModeChange: (mode: 'month' | 'week') => void;
@@ -38,6 +40,7 @@ const WEEK_DAYS = ['CN', 'Th 2', 'Th 3', 'Th 4', 'Th 5', 'Th 6', 'Th 7'];
 export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
   today,
   meetings,
+  calendarColor,
   selectedDate,
   displayMode,
   onDisplayModeChange,
@@ -56,17 +59,12 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
   const scheduleDate = displayMode === 'week' ? selectedDate : today;
   const isScheduleToday = isSameDay(scheduleDate, today);
 
-  // Map ngày -> số cuộc họp & trạng thái để tô màu nổi bật
+  // Map ngày -> số cuộc hẹn để đánh dấu trên lịch.
   const meetingDateMap = useMemo(() => {
-    const map = new Map<string, { count: number; hasUnacknowledged: boolean }>();
+    const map = new Map<string, number>();
     for (const m of meetings) {
       const dateKey = formatDateKey(new Date(m.meetingTime));
-      const existing = map.get(dateKey) || { count: 0, hasUnacknowledged: false };
-      existing.count += 1;
-      if (m.status !== 'ACKNOWLEDGED') {
-        existing.hasUnacknowledged = true;
-      }
-      map.set(dateKey, existing);
+      map.set(dateKey, (map.get(dateKey) ?? 0) + 1);
     }
     return map;
     // Local Date fields change with the device timezone; today invalidates this cache.
@@ -246,7 +244,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
       >
         {visibleDays.map((item, idx) => {
           const eventInfo = meetingDateMap.get(item.dateKey);
-          const hasMeetings = !!eventInfo && eventInfo.count > 0;
+          const hasMeetings = !!eventInfo;
           const isSelected = isSameDay(item.date, selectedDate);
 
           return (
@@ -255,13 +253,14 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
               style={[styles.dayCell, displayMode === 'week' ? styles.weekCell : { height: rowHeight }]}
               onPress={() => onSelectDate(item.date)}
               activeOpacity={0.7}
-              accessibilityLabel={`${item.date.getDate()}/${item.date.getMonth() + 1}/${item.date.getFullYear()}${item.isToday ? ', hôm nay' : ''}${hasMeetings ? `, ${eventInfo.count} cuộc hẹn` : ''}`}
+              accessibilityLabel={`${item.date.getDate()}/${item.date.getMonth() + 1}/${item.date.getFullYear()}${item.isToday ? ', hôm nay' : ''}${hasMeetings ? `, ${eventInfo} cuộc hẹn` : ''}`}
               accessibilityState={{ selected: isSelected }}
             >
               <View
                 style={[
                   styles.dayCircle,
                   hasMeetings && styles.dayCircleHasMeetings,
+                  hasMeetings && { backgroundColor: getCalendarCardBackground(calendarColor) },
                   isSelected && !item.isToday && styles.dayCircleSelected,
                   item.isToday && styles.dayCircleToday,
                 ]}
@@ -279,9 +278,9 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                 </Text>
 
                 {/* Badge đếm số lượng cuộc hẹn */}
-                {hasMeetings && eventInfo.count > 1 && (
+                {hasMeetings && eventInfo > 1 && (
                   <View style={styles.countBadgeMini}>
-                    <Text style={styles.countBadgeMiniText}>{eventInfo.count}</Text>
+                    <Text style={styles.countBadgeMiniText}>{eventInfo}</Text>
                   </View>
                 )}
               </View>
@@ -292,9 +291,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                   <View
                     style={[
                       styles.activeDot,
-                      eventInfo.hasUnacknowledged
-                        ? styles.dotUnacknowledged
-                        : styles.dotAcknowledged,
+                      { backgroundColor: getCalendarAccentColor(calendarColor) },
                     ]}
                   />
                 ) : null}
@@ -371,6 +368,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                   <MeetingCard
                     key={item.id}
                     meeting={item}
+                    calendarColor={calendarColor}
                     onSimulateAlarm={onSimulateAlarm}
                     onDelete={onDeleteMeeting}
                     onEdit={onEditMeeting}
@@ -395,6 +393,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                   <MeetingCard
                     key={item.id}
                     meeting={item}
+                    calendarColor={calendarColor}
                     onSimulateAlarm={onSimulateAlarm}
                     onDelete={onDeleteMeeting}
                     onEdit={onEditMeeting}
@@ -419,6 +418,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                   <MeetingCard
                     key={item.id}
                     meeting={item}
+                    calendarColor={calendarColor}
                     onSimulateAlarm={onSimulateAlarm}
                     onDelete={onDeleteMeeting}
                     onEdit={onEditMeeting}
@@ -440,6 +440,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
               <MeetingCard
                 key={item.id}
                 meeting={item}
+                calendarColor={calendarColor}
                 onSimulateAlarm={onSimulateAlarm}
                 onDelete={onDeleteMeeting}
                 onEdit={onEditMeeting}
@@ -593,12 +594,6 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-  },
-  dotUnacknowledged: {
-    backgroundColor: '#D97706',
-  },
-  dotAcknowledged: {
-    backgroundColor: '#059669',
   },
   todaySection: {
     marginTop: 14,

@@ -14,6 +14,7 @@ import { MeetingCard } from './MeetingCard';
 interface DayDetailViewProps {
   date: Date;
   meetings: Meeting[];
+  calendarColor: string;
   onBack: () => void;
   onAddMeeting: () => void;
   onSimulateAlarm: (meeting: Meeting) => void;
@@ -24,6 +25,7 @@ interface DayDetailViewProps {
 export const DayDetailView: React.FC<DayDetailViewProps> = ({
   date,
   meetings,
+  calendarColor,
   onBack,
   onAddMeeting,
   onSimulateAlarm,
@@ -93,6 +95,7 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
               <MeetingCard
                 key={item.id}
                 meeting={item}
+                calendarColor={calendarColor}
                 onSimulateAlarm={onSimulateAlarm}
                 onDelete={onDeleteMeeting}
                 onEdit={onEditMeeting}

@@ -4,13 +4,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Meeting } from '../types/meeting';
 import { isSameDay } from '../utils/dateUtils';
-import { CALENDAR_COLORS, COLOR_STORAGE_KEY, getCalendarCardBackground } from '../utils/calendarColor';
+import { CALENDAR_COLORS, getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
 import { Daypart, DaypartIcon, ScheduleIcon } from './ScheduleIcons';
 import { useAppDialog, useCancelMeetingDialog } from './AppDialog';
 
 interface NotesScreenProps {
   today: Date;
   meetings: Meeting[];
+  calendarColor: string;
+  onCalendarColorChange: (color: string) => void;
   onSimulateAlarm: (meeting: Meeting) => void;
   onDelete: (id: string) => void;
   onEdit: (meeting: Meeting) => void;
@@ -75,7 +77,7 @@ function ScheduleCard({
   const confirmCancel = () => confirmCancelMeeting(meeting);
 
   return <View style={[styles.meetingCard, { backgroundColor: getCalendarCardBackground(calendarColor) }, calendarColor === '#FFFFFF' && styles.whiteMeetingCard]}>
-    <View style={[styles.accent, { backgroundColor: calendarColor === '#FFFFFF' ? '#C7D5DF' : calendarColor }]} />
+    <View style={[styles.accent, { backgroundColor: getCalendarAccentColor(calendarColor) }]} />
     <View style={styles.timeColumn}>
       <Text style={styles.timeText}>{date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</Text>
       <Text style={styles.leadText}>-{meeting.advanceNoticeMinutes}p</Text>
@@ -99,23 +101,19 @@ function ScheduleCard({
   </View>;
 }
 
-export function NotesScreen({ today, meetings, onSimulateAlarm, onDelete, onEdit, onSendTestNotification }: NotesScreenProps) {
+export function NotesScreen({ today, meetings, calendarColor, onCalendarColorChange, onSimulateAlarm, onDelete, onEdit, onSendTestNotification }: NotesScreenProps) {
   const showDialog = useAppDialog();
   const [notificationSent, setNotificationSent] = useState(false);
   const [notificationSending, setNotificationSending] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('reminder');
-  const [calendarColor, setCalendarColor] = useState(CALENDAR_COLORS[0]);
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [colorModalVisible, setColorModalVisible] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    AsyncStorage.multiGet([SORT_STORAGE_KEY, COLOR_STORAGE_KEY]).then(([sortEntry, colorEntry]) => {
+    AsyncStorage.getItem(SORT_STORAGE_KEY).then(savedSort => {
       if (!mounted) return;
-      const savedSort = sortEntry[1];
-      const savedColor = colorEntry[1];
       if (SORT_OPTIONS.some(option => option.id === savedSort)) setSortMode(savedSort as SortMode);
-      if (savedColor && CALENDAR_COLORS.includes(savedColor)) setCalendarColor(savedColor);
     }).catch(error => console.warn('Không thể tải tùy chọn lịch:', error));
     return () => { mounted = false; };
   }, []);
@@ -127,9 +125,8 @@ export function NotesScreen({ today, meetings, onSimulateAlarm, onDelete, onEdit
   };
 
   const selectCalendarColor = (color: string) => {
-    setCalendarColor(color);
+    onCalendarColorChange(color);
     setColorModalVisible(false);
-    AsyncStorage.setItem(COLOR_STORAGE_KEY, color).catch(error => console.warn('Không thể lưu màu lịch:', error));
   };
 
   const { todayMeetings, groups, otherMeetings } = useMemo(() => {

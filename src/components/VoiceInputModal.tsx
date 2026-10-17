@@ -23,7 +23,7 @@ import { voiceEditCommand, voiceEditFields } from '../services/voiceMeetingComma
 import { applyMeetingEdit, type MeetingEditFields } from '../utils/meetingEdit';
 import { findMeetingTimeConflict, meetingConflictMessage, meetingMinute } from '../utils/meetingConflict';
 import { ListeningFace } from './ListeningFace';
-import { RainbowConfirmButton } from './RainbowConfirmButton';
+import { BrandConfirmButton, RainbowCircleOutline } from './RainbowConfirmButton';
 
 interface VoiceInputModalProps {
   visible: boolean;
@@ -339,23 +339,26 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                 {speechBusy ? <Text style={styles.listeningHeadline} accessibilityLiveRegion="polite">
                   {isListening ? 'Tôi đang nghe đây...' : isStarting ? 'Đang chuẩn bị micro...' : 'Đang hoàn tất nhận diện...'}
                 </Text> : null}
-                <TouchableOpacity
-                  style={[
-                    styles.micButton,
-                    isListening && styles.micButtonListening,
-                  ]}
-                  onPress={isListening ? finishListening : startListening}
-                  disabled={isStarting || isFinishing || saving}
-                  accessibilityRole="button"
-                  accessibilityLabel={isListening ? 'Dừng nhận diện giọng nói' : 'Bắt đầu nhận diện giọng nói'}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name={isListening ? 'stop' : 'mic'}
-                    size={28}
-                    color="#FFFFFF"
-                  />
-                </TouchableOpacity>
+                <View style={styles.micButtonFrame}>
+                  <TouchableOpacity
+                    style={[
+                      styles.micButton,
+                      isListening && styles.micButtonListening,
+                    ]}
+                    onPress={isListening ? finishListening : startListening}
+                    disabled={isStarting || isFinishing || saving}
+                    accessibilityRole="button"
+                    accessibilityLabel={isListening ? 'Dừng nhận diện giọng nói' : 'Bắt đầu nhận diện giọng nói'}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={isListening ? 'stop' : 'mic'}
+                      size={28}
+                      color="#FFFFFF"
+                    />
+                  </TouchableOpacity>
+                  <RainbowCircleOutline active={speechBusy} size={64} />
+                </View>
 
                 {errorMessage ? (
                   <Text style={styles.errorText}>{errorMessage}</Text>
@@ -458,7 +461,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               {timeConflict && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>
                 {meetingConflictMessage(timeConflict)}
               </Text> : null}
-              <RainbowConfirmButton
+              <BrandConfirmButton
                 disabled={!canConfirm}
                 onPress={handleConfirm}
                 label={saving ? 'Đang chuẩn bị giọng đọc…' : editCommand ? 'Lưu thay đổi' : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
@@ -543,6 +546,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  micButtonFrame: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
   micButtonListening: {
     backgroundColor: '#DC2626',
   },

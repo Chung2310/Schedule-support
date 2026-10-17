@@ -19,6 +19,7 @@ import { StorageService } from './src/services/storage';
 import { TodayWidgets } from './src/services/todayWidgets';
 import { AlarmManager } from './src/services/alarmManager';
 import { isSameDay } from './src/utils/dateUtils';
+import { CALENDAR_COLORS, COLOR_STORAGE_KEY } from './src/utils/calendarColor';
 import { useLocalDay } from './src/hooks/useLocalDay';
 
 import { Header } from './src/components/Header';
@@ -50,6 +51,20 @@ function AppContent() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isCalendarLoaded, setIsCalendarLoaded] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [calendarColor, setCalendarColor] = useState(CALENDAR_COLORS[0]);
+
+  useEffect(() => {
+    let mounted = true;
+    void AsyncStorage.getItem(COLOR_STORAGE_KEY).then(color => {
+      if (mounted && color && CALENDAR_COLORS.includes(color)) setCalendarColor(color);
+    }).catch(error => console.warn('Không thể tải màu lịch:', error));
+    return () => { mounted = false; };
+  }, []);
+
+  const handleCalendarColorChange = useCallback((color: string) => {
+    setCalendarColor(color);
+    void AsyncStorage.setItem(COLOR_STORAGE_KEY, color).catch(error => console.warn('Không thể lưu màu lịch:', error));
+  }, []);
 
   // Chế độ xem: 'YEAR' (Xem cả năm) | 'MONTH' (Mặc định: Lịch cả tháng) | 'DAY' (Chi tiết dãy giờ theo ngày)
   const [viewMode, setViewMode] = useState<'YEAR' | 'MONTH' | 'DAY'>('MONTH');
@@ -369,6 +384,8 @@ function AppContent() {
         {activeTab === 'notes' ? <NotesScreen
           today={today}
           meetings={meetings}
+          calendarColor={calendarColor}
+          onCalendarColorChange={handleCalendarColorChange}
           onSimulateAlarm={handleSimulateAlarm}
           onDelete={handleDeleteMeeting}
           onEdit={setEditingMeeting}
@@ -389,6 +406,7 @@ function AppContent() {
           <FullMonthCalendar
             today={today}
             meetings={meetings}
+            calendarColor={calendarColor}
             selectedDate={selectedDate}
             displayMode={calendarDisplayMode}
             onDisplayModeChange={setCalendarDisplayMode}
@@ -413,6 +431,7 @@ function AppContent() {
             <CalendarView
               today={today}
               meetings={meetings}
+              calendarColor={calendarColor}
               selectedDate={selectedDate}
               onSelectDate={(date) => setSelectedDate(date)}
             />
@@ -421,6 +440,7 @@ function AppContent() {
             <DayHourlyTimeline
               date={selectedDate}
               meetings={selectedDayMeetings}
+              calendarColor={calendarColor}
               onSimulateAlarm={handleSimulateAlarm}
               onDeleteMeeting={handleDeleteMeeting}
               onEditMeeting={setEditingMeeting}

@@ -9,10 +9,12 @@ import {
 } from 'react-native';
 import { Meeting } from '../types/meeting';
 import { formatDateKey, isSameDay, getDaysInMonth } from '../utils/dateUtils';
+import { getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
 
 interface CalendarViewProps {
   today: Date;
   meetings: Meeting[];
+  calendarColor: string;
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
   onBackToMonth?: () => void;
@@ -24,23 +26,19 @@ const ITEM_WIDTH = 54;
 export const CalendarView: React.FC<CalendarViewProps> = ({
   today,
   meetings,
+  calendarColor,
   selectedDate,
   onSelectDate,
 }) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const initialScrolledRef = useRef(false);
 
-  // Map ngày -> số cuộc họp & trạng thái
+  // Map ngày -> số cuộc hẹn để đánh dấu trên lịch.
   const meetingDateMap = useMemo(() => {
-    const map = new Map<string, { count: number; hasUnacknowledged: boolean }>();
+    const map = new Map<string, number>();
     for (const m of meetings) {
       const dateKey = formatDateKey(new Date(m.meetingTime));
-      const existing = map.get(dateKey) || { count: 0, hasUnacknowledged: false };
-      existing.count += 1;
-      if (m.status !== 'ACKNOWLEDGED') {
-        existing.hasUnacknowledged = true;
-      }
-      map.set(dateKey, existing);
+      map.set(dateKey, (map.get(dateKey) ?? 0) + 1);
     }
     return map;
     // Local Date fields change with the device timezone; today invalidates this cache.
@@ -119,7 +117,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           const isSelected = isSameDay(item.date, selectedDate);
           const isToday = isSameDay(item.date, today);
           const eventInfo = meetingDateMap.get(item.dateKey);
-          const hasMeetings = !!eventInfo && eventInfo.count > 0;
+          const hasMeetings = !!eventInfo;
 
           return (
             <TouchableOpacity
@@ -146,6 +144,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 style={[
                   styles.dayCircle,
                   hasMeetings && styles.dayCircleHasMeetings,
+                  hasMeetings && { backgroundColor: getCalendarCardBackground(calendarColor), borderColor: getCalendarAccentColor(calendarColor) },
                   isToday && styles.dayCircleToday,
                   isSelected && styles.dayCircleSelected,
                 ]}
@@ -161,9 +160,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 </Text>
 
                 {/* Huy hiệu số cuộc hẹn */}
-                {hasMeetings && eventInfo.count > 1 && !isSelected && (
+                {hasMeetings && eventInfo > 1 && !isSelected && (
                   <View style={styles.countBadgeMini}>
-                    <Text style={styles.countBadgeMiniText}>{eventInfo.count}</Text>
+                    <Text style={styles.countBadgeMiniText}>{eventInfo}</Text>
                   </View>
                 )}
               </View>
@@ -174,10 +173,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   <View
                     style={[
                       styles.activeDot,
-                      eventInfo.hasUnacknowledged
-                        ? styles.dotUnacknowledged
-                        : styles.dotAcknowledged,
-                      isSelected && styles.dotSelected,
+                      { backgroundColor: getCalendarAccentColor(calendarColor) },
                     ]}
                   />
                 ) : null}
@@ -299,14 +295,5 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-  },
-  dotUnacknowledged: {
-    backgroundColor: '#D97706',
-  },
-  dotAcknowledged: {
-    backgroundColor: '#059669',
-  },
-  dotSelected: {
-    backgroundColor: '#00ADFC',
   },
 });

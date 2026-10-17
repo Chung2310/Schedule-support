@@ -5,9 +5,11 @@ import { Meeting } from '../types/meeting';
 import { useCancelMeetingDialog } from './AppDialog';
 
 import { isSameDay } from '../utils/dateUtils';
+import { getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
 
 interface MeetingCardProps {
   meeting: Meeting;
+  calendarColor: string;
   onSimulateAlarm: (meeting: Meeting) => void;
   onDelete: (id: string) => void;
   onEdit: (meeting: Meeting) => void;
@@ -16,6 +18,7 @@ interface MeetingCardProps {
 
 export const MeetingCard: React.FC<MeetingCardProps> = ({
   meeting,
+  calendarColor,
   onSimulateAlarm,
   onDelete,
   onEdit,
@@ -45,16 +48,10 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
   const isAcknowledged = meeting.status === 'ACKNOWLEDGED';
   const isReminding = meeting.status === 'REMINDING';
 
-  const accentColor = isAcknowledged
-    ? '#10B981'
-    : isReminding
-    ? '#EF4444'
-    : '#0A2540';
-
   return (
-    <View style={[styles.card, isAcknowledged && styles.cardDimmed]}>
+    <View style={[styles.card, { backgroundColor: getCalendarCardBackground(calendarColor) }, calendarColor === '#FFFFFF' && styles.whiteCard]}>
       {/* Vạch màu chỉ thị bên trái */}
-      <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+      <View style={[styles.accentBar, { backgroundColor: getCalendarAccentColor(calendarColor) }]} />
 
       {/* Cột Giờ */}
       <View style={styles.timeColumn}>
@@ -132,9 +129,7 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  cardDimmed: {
-    opacity: 0.7,
-  },
+  whiteCard: { borderColor: '#E8EEF3' },
   accentBar: {
     width: 3.5,
     height: 34,

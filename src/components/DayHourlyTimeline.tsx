@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -11,7 +10,7 @@ import {
 } from 'react-native';
 import { Meeting } from '../types/meeting';
 import { isSameDay, formatDateKey } from '../utils/dateUtils';
-import { CALENDAR_COLORS, COLOR_STORAGE_KEY, getCalendarCardBackground } from '../utils/calendarColor';
+import { getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
 import { useCurrentMinute } from '../hooks/useLocalDay';
 import { useCancelMeetingDialog } from './AppDialog';
 import { ScheduleIcon } from './ScheduleIcons';
@@ -19,6 +18,7 @@ import { ScheduleIcon } from './ScheduleIcons';
 interface DayHourlyTimelineProps {
   date: Date;
   meetings: Meeting[];
+  calendarColor: string;
   onSimulateAlarm: (meeting: Meeting) => void;
   onDeleteMeeting: (id: string) => void;
   onEditMeeting: (meeting: Meeting) => void;
@@ -33,6 +33,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 export const DayHourlyTimeline: React.FC<DayHourlyTimelineProps> = ({
   date,
   meetings,
+  calendarColor,
   onSimulateAlarm,
   onDeleteMeeting,
   onEditMeeting,
@@ -42,16 +43,7 @@ export const DayHourlyTimeline: React.FC<DayHourlyTimelineProps> = ({
   const confirmCancelMeeting = useCancelMeetingDialog(onDeleteMeeting);
   const [slideAnim] = useState(() => new Animated.Value(18));
   const [opacityAnim] = useState(() => new Animated.Value(0.2));
-  const [calendarColor, setCalendarColor] = useState(CALENDAR_COLORS[0]);
   const dateKey = formatDateKey(date);
-
-  useEffect(() => {
-    let mounted = true;
-    AsyncStorage.getItem(COLOR_STORAGE_KEY).then(color => {
-      if (mounted && color && CALENDAR_COLORS.includes(color)) setCalendarColor(color);
-    }).catch(error => console.warn('Không thể tải màu lịch:', error));
-    return () => { mounted = false; };
-  }, []);
 
   // Hiệu ứng animation trượt nhẹ lên mượt mà khi đổi ngày
   useEffect(() => {
@@ -161,7 +153,7 @@ export const DayHourlyTimeline: React.FC<DayHourlyTimelineProps> = ({
                             calendarColor === '#FFFFFF' && styles.whiteMeetingCard,
                           ]}
                         >
-                          <View style={[styles.statusStripe, { backgroundColor: calendarColor === '#FFFFFF' ? '#C7D5DF' : calendarColor }]} />
+                          <View style={[styles.statusStripe, { backgroundColor: getCalendarAccentColor(calendarColor) }]} />
                           <View style={styles.timeColumn}>
                             <Text style={styles.timeText}>{exactTime}</Text>
                             <Text style={styles.leadText}>-{m.advanceNoticeMinutes}p</Text>
