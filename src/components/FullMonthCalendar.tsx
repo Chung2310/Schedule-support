@@ -16,7 +16,7 @@ import {
   isSameDay,
 } from '../utils/dateUtils';
 import { MeetingCard } from './MeetingCard';
-import { getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
+import { getCalendarAccentColor } from '../utils/calendarColor';
 import { useAppDialog } from './AppDialog';
 
 interface FullMonthCalendarProps {
@@ -24,8 +24,6 @@ interface FullMonthCalendarProps {
   meetings: Meeting[];
   calendarColor: string;
   selectedDate: Date;
-  displayMode: 'month' | 'week';
-  onDisplayModeChange: (mode: 'month' | 'week') => void;
   onSelectDate: (date: Date) => void;
   onBackToYear?: () => void;
   onMonthChange: (date: Date) => void;
@@ -42,8 +40,6 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
   meetings,
   calendarColor,
   selectedDate,
-  displayMode,
-  onDisplayModeChange,
   onSelectDate,
   onBackToYear,
   onMonthChange,
@@ -55,21 +51,32 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
   const showDialog = useAppDialog();
   const { height } = useWindowDimensions();
   const currentMonthDate = selectedDate;
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
-  const scheduleDate = displayMode === 'week' ? selectedDate : today;
+  const scheduleDate = today;
   const isScheduleToday = isSameDay(scheduleDate, today);
 
-  // Map ngày -> số cuộc hẹn để đánh dấu trên lịch.
-  const meetingDateMap = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const m of meetings) {
+  // Nhóm cuộc họp theo ngày để hiển thị nhãn ngay trong lưới tháng.
+  const meetingsByDate = useMemo(() => {
+    const map = new Map<string, Meeting[]>();
+    const sorted = [...meetings].sort(
+      (a, b) => new Date(a.meetingTime).getTime() - new Date(b.meetingTime).getTime()
+    );
+    for (const m of sorted) {
       const dateKey = formatDateKey(new Date(m.meetingTime));
-      map.set(dateKey, (map.get(dateKey) ?? 0) + 1);
+      const dayMeetings = map.get(dateKey) ?? [];
+      dayMeetings.push(m);
+      map.set(dateKey, dayMeetings);
     }
     return map;
     // Local Date fields change with the device timezone; today invalidates this cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetings, today]);
+
+  const meetingLabelColor = calendarColor === '#FFFFFF' ? '#E2E8F0' : getCalendarAccentColor(calendarColor);
+  const labelColorValue = Number.parseInt(meetingLabelColor.slice(1), 16);
+  const labelBrightness = ((labelColorValue >> 16) & 255) * 0.299
+    + ((labelColorValue >> 8) & 255) * 0.587
+    + (labelColorValue & 255) * 0.114;
+  const meetingLabelTextColor = labelBrightness > 170 ? '#0A2540' : '#FFFFFF';
 
   // Sinh toàn bộ các ngày trong tháng (Full Month Grid)
   const days: CalendarDay[] = useMemo(() => {
@@ -80,34 +87,20 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
       return { date, dateKey: formatDateKey(date), isCurrentMonth: date.getMonth() === first.getMonth(), isToday: isSameDay(date, today) };
     });
   }, [currentMonthDate, today]);
-  const weekDays: CalendarDay[] = useMemo(() => {
-    const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() - selectedDate.getDay());
-    return Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
-      return { date, dateKey: formatDateKey(date), isCurrentMonth: date.getMonth() === selectedDate.getMonth(), isToday: isSameDay(date, today) };
-    });
-  }, [selectedDate, today]);
-  const visibleDays = displayMode === 'week' ? weekDays : days;
-  const rowHeight = Math.max(65, (height - 240) / 6);
+  const rowHeight = Math.max(90, (height - 240) / 6);
 
   // Điều hướng tháng
   const handlePrevMonth = () => {
     const d = new Date(currentMonthDate);
-    if (displayMode === 'week') d.setDate(d.getDate() - 7);
-    else {
-      d.setDate(1);
-      d.setMonth(d.getMonth() - 1);
-    }
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
     onMonthChange(d);
   };
 
   const handleNextMonth = () => {
     const d = new Date(currentMonthDate);
-    if (displayMode === 'week') d.setDate(d.getDate() + 7);
-    else {
-      d.setDate(1);
-      d.setMonth(d.getMonth() + 1);
-    }
+    d.setDate(1);
+    d.setMonth(d.getMonth() + 1);
     onMonthChange(d);
   };
 
@@ -195,30 +188,11 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
     >
       {/* Tiêu đề Tháng hiện tại: Hiển thị thanh lịch, vuốt ngang để chuyển giữa các tháng */}
       <View style={styles.monthHeaderRow}>
-        <TouchableOpacity onPress={handlePrevMonth} style={styles.monthArrow} accessibilityLabel={displayMode === 'week' ? 'Tuần trước' : 'Tháng trước'}><Ionicons name="chevron-back" size={23} color="#00ADFC" /></TouchableOpacity>
+        <TouchableOpacity onPress={handlePrevMonth} style={styles.monthArrow} accessibilityLabel="Tháng trước"><Ionicons name="chevron-back" size={23} color="#00ADFC" /></TouchableOpacity>
         <TouchableOpacity onPress={onBackToYear} accessibilityLabel="Xem lịch năm">
           <Text style={styles.monthTitleText}>{monthTitleOnly.toLocaleLowerCase('vi-VN')} {currentMonthDate.getFullYear()}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleNextMonth} style={styles.monthArrow} accessibilityLabel={displayMode === 'week' ? 'Tuần sau' : 'Tháng sau'}><Ionicons name="chevron-forward" size={23} color="#00ADFC" /></TouchableOpacity>
-        <View style={styles.headerSpacer} />
-        <View style={styles.modeSelector}>
-          <TouchableOpacity onPress={() => setModeMenuOpen(open => !open)} accessibilityRole="button" accessibilityLabel="Chọn kiểu xem lịch" accessibilityState={{ expanded: modeMenuOpen }} style={styles.todayButton}>
-            <Ionicons name="calendar-outline" size={22} color="#00ADFC" />
-            <Text style={styles.todayButtonText}>{displayMode === 'month' ? 'Tháng' : 'Tuần'}</Text>
-            <Ionicons name={modeMenuOpen ? 'caret-up' : 'caret-down'} size={14} color="#00ADFC" />
-          </TouchableOpacity>
-          {modeMenuOpen ? <View style={styles.modeMenu}>
-            {(['month', 'week'] as const).map(mode => <TouchableOpacity
-              key={mode}
-              style={[styles.modeOption, displayMode === mode && styles.modeOptionSelected]}
-              onPress={() => { onDisplayModeChange(mode); setModeMenuOpen(false); }}
-              accessibilityRole="button"
-              accessibilityState={{ selected: displayMode === mode }}
-            >
-              <Text style={[styles.modeOptionText, displayMode === mode && styles.modeOptionTextSelected]}>{mode === 'month' ? 'Tháng' : 'Tuần'}</Text>
-            </TouchableOpacity>)}
-          </View> : null}
-        </View>
+        <TouchableOpacity onPress={handleNextMonth} style={styles.monthArrow} accessibilityLabel="Tháng sau"><Ionicons name="chevron-forward" size={23} color="#00ADFC" /></TouchableOpacity>
       </View>
 
       {/* Hàng Tiêu đề Thứ (T2 -> CN) */}
@@ -238,30 +212,27 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
 
       {/* Lưới toàn bộ các ngày trong tháng: Hỗ trợ vuốt ngang chuyển tháng, KHÔNG CẦN NÚT <> */}
       <View
-        style={[styles.daysGrid, displayMode === 'week' && styles.weekGrid]}
+        style={styles.daysGrid}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {visibleDays.map((item, idx) => {
-          const eventInfo = meetingDateMap.get(item.dateKey);
-          const hasMeetings = !!eventInfo;
+        {days.map((item, idx) => {
+          const cellMeetings = meetingsByDate.get(item.dateKey) ?? [];
+          const hiddenMeetingCount = Math.max(0, cellMeetings.length - 1);
           const isSelected = isSameDay(item.date, selectedDate);
 
           return (
             <TouchableOpacity
               key={idx}
-              style={[styles.dayCell, displayMode === 'week' ? styles.weekCell : { height: rowHeight }]}
+              style={[styles.dayCell, { height: rowHeight }]}
               onPress={() => onSelectDate(item.date)}
               activeOpacity={0.7}
-              accessibilityLabel={`${item.date.getDate()}/${item.date.getMonth() + 1}/${item.date.getFullYear()}${item.isToday ? ', hôm nay' : ''}${hasMeetings ? `, ${eventInfo} cuộc hẹn` : ''}`}
+              accessibilityLabel={`${item.date.getDate()}/${item.date.getMonth() + 1}/${item.date.getFullYear()}${item.isToday ? ', hôm nay' : ''}${cellMeetings.length ? `, ${cellMeetings.length} cuộc hẹn: ${cellMeetings.map(meeting => meeting.title).join(', ')}` : ''}`}
               accessibilityState={{ selected: isSelected }}
             >
               <View
                 style={[
                   styles.dayCircle,
-                  hasMeetings && styles.dayCircleHasMeetings,
-                  hasMeetings && { backgroundColor: getCalendarCardBackground(calendarColor) },
-                  isSelected && !item.isToday && styles.dayCircleSelected,
                   item.isToday && styles.dayCircleToday,
                 ]}
               >
@@ -269,32 +240,28 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
                   style={[
                     styles.dayNumber,
                     !item.isCurrentMonth && styles.dayNumberDimmed,
-                    hasMeetings && styles.dayNumberHasMeetings,
-                    isSelected && !item.isToday && styles.dayNumberSelected,
                     item.isToday && styles.dayNumberToday,
                   ]}
                 >
                   {item.date.getDate()}
                 </Text>
-
-                {/* Badge đếm số lượng cuộc hẹn */}
-                {hasMeetings && eventInfo > 1 && (
-                  <View style={styles.countBadgeMini}>
-                    <Text style={styles.countBadgeMiniText}>{eventInfo}</Text>
-                  </View>
-                )}
               </View>
 
-              {/* Chấm tròn chỉ thị bên dưới ngày có lịch */}
-              <View style={styles.dotsSlot}>
-                {hasMeetings ? (
-                  <View
-                    style={[
-                      styles.activeDot,
-                      { backgroundColor: getCalendarAccentColor(calendarColor) },
-                    ]}
-                  />
-                ) : null}
+              <View style={styles.meetingLabels}>
+                {cellMeetings.slice(0, cellMeetings.length > 2 ? 1 : 2).map(meeting => (
+                  <View key={meeting.id} style={[styles.meetingLabel, { backgroundColor: meetingLabelColor }]}>
+                    <Text numberOfLines={1} style={[styles.meetingLabelText, { color: meetingLabelTextColor }]}>
+                      {meeting.title}
+                    </Text>
+                  </View>
+                ))}
+                {cellMeetings.length > 2 && (
+                  <View style={[styles.meetingLabel, { backgroundColor: meetingLabelColor }]}>
+                    <Text style={[styles.meetingLabelText, { color: meetingLabelTextColor }]}>
+                      +{hiddenMeetingCount}
+                    </Text>
+                  </View>
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -430,7 +397,7 @@ export const FullMonthCalendar: React.FC<FullMonthCalendarProps> = ({
         )}
 
         {/* Lịch các ngày tiếp theo nếu có */}
-        {displayMode === 'month' && futureMeetings.length > 0 && (
+        {futureMeetings.length > 0 && (
           <View style={styles.futureSection}>
             <View style={styles.futureHeaderRow}>
               <Text style={styles.futureTitleText}>Lịch các ngày tới</Text>
@@ -470,10 +437,8 @@ const styles = StyleSheet.create({
     paddingTop: 7,
     paddingBottom: 17,
     gap: 7,
-    zIndex: 2,
   },
   monthArrow: { width: 30, height: 36, alignItems: 'center', justifyContent: 'center' },
-  headerSpacer: { flex: 1 },
   monthTitleText: {
     fontSize: 19, fontFamily: 'Roboto',
     color: '#101C2B',
@@ -500,7 +465,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     paddingHorizontal: 8,
   },
-  weekGrid: { borderBottomWidth: 1, borderBottomColor: '#E5E8EB' },
   dayCell: {
     width: '14.28%',
     alignItems: 'center',
@@ -508,56 +472,20 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E5E8EB',
   },
-  weekCell: { height: 72, paddingTop: 10, borderTopWidth: 0 },
   dayCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'transparent',
   },
-  dayCircleHasMeetings: {
-    backgroundColor: '#E8F8FF',
-  },
-  dayCircleSelected: { backgroundColor: '#EAF8FF', borderColor: '#00ADFC', borderWidth: 1.5 },
   dayCircleToday: {
     backgroundColor: '#00ADFC',
-    borderRadius: 20,
+    borderRadius: 16,
   },
-  dayNumberSelected: { color: '#008FCC' },
   dayNumberToday: {
     color: '#FFFFFF',
-  },
-  todayButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    paddingVertical: 6,
-  },
-  modeSelector: { position: 'relative' },
-  modeMenu: {
-    position: 'absolute',
-    top: 40,
-    right: 0,
-    width: 138,
-    borderRadius: 14,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#0A2540',
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 8,
-    overflow: 'hidden',
-    zIndex: 3,
-  },
-  modeOption: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 18 },
-  modeOptionSelected: { backgroundColor: '#EAF8FF' },
-  modeOptionText: { color: '#101C2B', fontSize: 16, fontFamily: 'Roboto' },
-  modeOptionTextSelected: { color: '#008FCC' },
-  todayButtonText: {
-    color: '#101C2B',
-    fontSize: 16, fontFamily: 'Roboto',
   },
   dayNumber: {
     fontSize: 14, fontFamily: 'Roboto',
@@ -566,35 +494,9 @@ const styles = StyleSheet.create({
   dayNumberDimmed: {
     color: '#D1D5D9',
   },
-  dayNumberHasMeetings: {
-    color: '#088CC8',
-  },
-  countBadgeMini: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#00ADFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  countBadgeMiniText: {
-    color: '#FFFFFF',
-    fontSize: 9, fontFamily: 'Roboto',
-  },
-  dotsSlot: {
-    height: 5,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 1,
-  },
-  activeDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-  },
+  meetingLabels: { width: '100%', gap: 3, paddingHorizontal: 2, marginTop: 4 },
+  meetingLabel: { width: '100%', minHeight: 17, borderRadius: 4, justifyContent: 'center', paddingHorizontal: 2 },
+  meetingLabelText: { width: '100%', fontSize: 10, lineHeight: 13, fontFamily: 'Roboto', textAlign: 'center' },
   todaySection: {
     marginTop: 14,
     paddingHorizontal: 16,

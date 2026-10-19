@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { Meeting } from '../types/meeting';
 import { applyMeetingEdit, meetingEditFields, MeetingEditFields } from '../utils/meetingEdit';
@@ -61,8 +62,9 @@ export function EditMeetingModal({ meeting, onClose, onSave }: Props) {
   };
   return <>
     <Modal visible transparent animationType="slide" onRequestClose={() => { if (!savingRef.current) onClose(); }}>
-      <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.sheet}>
+      <SafeAreaProvider style={styles.modalRoot}>
+        <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <SafeAreaView style={styles.sheet} edges={['bottom']}>
           <View style={styles.header}>
             <Text style={styles.heading}>Sửa cuộc họp</Text>
             <TouchableOpacity disabled={saving} onPress={onClose} accessibilityLabel="Đóng" style={styles.close}>
@@ -111,8 +113,9 @@ export function EditMeetingModal({ meeting, onClose, onSave }: Props) {
             </TouchableOpacity>
             {saving ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để cập nhật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
           </ScrollView>
-        </View>
-      </KeyboardAvoidingView>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </SafeAreaProvider>
     </Modal>
 
     {Platform.OS === 'android' && pickerTarget ? <DateTimePicker
@@ -160,8 +163,9 @@ export function EditMeetingModal({ meeting, onClose, onSave }: Props) {
 
 const styles = StyleSheet.create({
   savingHint: { color: '#64748B', fontSize: 12, fontFamily: 'Roboto', lineHeight: 18, marginTop: 10, textAlign: 'center' },
+  modalRoot: { flex: 1 },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10, 25, 47, 0.48)' },
-  sheet: { maxHeight: '90%', backgroundColor: '#FFFFFF', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 22, paddingBottom: Platform.OS === 'ios' ? 34 : 22 },
+  sheet: { maxHeight: '90%', backgroundColor: '#FFFFFF', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 22 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   heading: { fontSize: 22, fontFamily: 'Roboto', color: '#0A2540' },
   close: { padding: 10 },

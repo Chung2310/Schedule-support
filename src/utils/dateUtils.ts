@@ -75,28 +75,3 @@ export function generateMonthDays(year: number, month: number, today = new Date(
 
   return days;
 }
-
-export function generateWeekDays(currentDate: Date): CalendarDay[] {
-  const days: CalendarDay[] = [];
-  const today = new Date();
-
-  // Tìm ngày Thứ Hai của tuần chứa currentDate
-  const dayOfWeek = currentDate.getDay(); // 0 = CN, 1 = T2 ...
-  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-
-  const monday = new Date(currentDate);
-  monday.setDate(currentDate.getDate() + diffToMonday);
-
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    days.push({
-      date: d,
-      isCurrentMonth: d.getMonth() === currentDate.getMonth(),
-      isToday: isSameDay(d, today),
-      dateKey: formatDateKey(d),
-    });
-  }
-
-  return days;
-}

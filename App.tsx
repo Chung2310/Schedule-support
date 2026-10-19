@@ -68,7 +68,6 @@ function AppContent() {
 
   // Chế độ xem: 'YEAR' (Xem cả năm) | 'MONTH' (Mặc định: Lịch cả tháng) | 'DAY' (Chi tiết dãy giờ theo ngày)
   const [viewMode, setViewMode] = useState<'YEAR' | 'MONTH' | 'DAY'>('MONTH');
-  const [calendarDisplayMode, setCalendarDisplayMode] = useState<'month' | 'week'>('month');
 
   // Ngày đang được chọn trên lịch
   const [selectedDate, setSelectedDate] = useState<Date>(() => today);
@@ -366,11 +365,7 @@ function AppContent() {
       <View style={styles.mainContainer}>
         {/* Header trên cùng: Nút back đưa lên trên hẳn và Tiêu đề "Lịch Họp" ở chính giữa */}
         {activeTab === 'calendar' && viewMode !== 'MONTH' ? <Header
-          backTitle={
-            viewMode === 'DAY'
-              ? calendarDisplayMode === 'week' ? 'Lịch tuần' : 'Lịch tháng'
-              : null
-          }
+          backTitle={viewMode === 'DAY' ? 'Lịch tháng' : null}
           onBack={
             viewMode === 'DAY'
               ? () => setViewMode('MONTH')
@@ -408,8 +403,6 @@ function AppContent() {
             meetings={meetings}
             calendarColor={calendarColor}
             selectedDate={selectedDate}
-            displayMode={calendarDisplayMode}
-            onDisplayModeChange={setCalendarDisplayMode}
             onMonthChange={(date) => setSelectedDate(date)}
             onBackToYear={() => setViewMode('YEAR')}
             onSelectDate={(date) => {
