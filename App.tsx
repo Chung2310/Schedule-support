@@ -29,7 +29,7 @@ import { CalendarView } from './src/components/CalendarView';
 import { DayHourlyTimeline } from './src/components/DayHourlyTimeline';
 import { AlarmOverlay } from './src/components/AlarmOverlay';
 import { VoiceInputModal } from './src/components/VoiceInputModal';
-import { SettingsModal } from './src/components/SettingsModal';
+import { SettingsScreen } from './src/components/SettingsScreen';
 import { EditMeetingModal } from './src/components/EditMeetingModal';
 import { NotesScreen } from './src/components/NotesScreen';
 import { FloatingMicrophoneButton } from './src/components/FloatingMicrophoneButton';
@@ -47,7 +47,8 @@ function AppContent() {
   const [fontsLoaded] = useFonts({ Roboto: require('./assets/fonts/Roboto-Regular.ttf') });
   const [hasSeenWelcome, setHasSeenWelcome] = useState<boolean | null>(null);
   const today = useLocalDay();
-  const [activeTab, setActiveTab] = useState<'notes' | 'calendar'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'calendar' | 'settings'>('notes');
+  const settingsReturnTab = useRef<'notes' | 'calendar'>('notes');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isCalendarLoaded, setIsCalendarLoaded] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -79,7 +80,6 @@ function AppContent() {
 
   // Modals state
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
 
   // Active alarm for iPhone-style full overlay
@@ -148,6 +148,7 @@ function AppContent() {
           onNotificationOpen: (meeting) => {
             setSelectedDate(new Date(meeting.meetingTime));
             setViewMode('DAY');
+            setActiveTab('calendar');
           },
         });
         if (!disposed) await loadData();
@@ -330,6 +331,11 @@ function AppContent() {
   };
 
   // Lưu cài đặt
+  const handleOpenSettings = () => {
+    if (activeTab !== 'settings') settingsReturnTab.current = activeTab;
+    setActiveTab('settings');
+  };
+
   const handleSaveSettings = async (newSettings: AppSettings) => {
     try {
       await StorageService.saveSettings(newSettings);
@@ -341,7 +347,7 @@ function AppContent() {
     const scheduled = await AlarmManager.syncNotifications(newSettings);
     AlarmManager.pauseForegroundReminders();
     AlarmManager.resumeForegroundReminders(await StorageService.getMeetings(), newSettings);
-    setIsSettingsModalOpen(false);
+    setActiveTab(settingsReturnTab.current);
     if (!scheduled) {
       showDialog('Đã lưu cài đặt', 'Chưa cập nhật được thông báo nhắc lịch. Hãy kiểm tra quyền thông báo và mở lại ứng dụng.');
     } else if (AlarmManager.voiceFallbackMeetingIds.size > 0) {
@@ -371,12 +377,19 @@ function AppContent() {
               ? () => setViewMode('MONTH')
               : null
           }
-          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenSettings={handleOpenSettings}
           onOpenVoiceModal={handleOpenVoiceForSelectedDate}
         /> : null}
 
         {/* NỘI DUNG CHÍNH: LEVEL 0 (XEM CẢ NĂM), LEVEL 1 (LỊCH CẢ THÁNG - MẶC ĐỊNH), LEVEL 2 (CHI TIẾT NGÀY) */}
-        {activeTab === 'notes' ? <NotesScreen
+        {activeTab === 'settings' ? <SettingsScreen
+          settings={settings}
+          onClose={() => setActiveTab(settingsReturnTab.current)}
+          onSave={handleSaveSettings}
+          onTestNotification={(previewSettings) =>
+            AlarmManager.scheduleVoicePreview(previewSettings)
+          }
+        /> : activeTab === 'notes' ? <NotesScreen
           today={today}
           meetings={meetings}
           calendarColor={calendarColor}
@@ -445,7 +458,7 @@ function AppContent() {
         )}
 
         {/* Nút bấm nổi ghi âm đơn giản ở đáy màn hình */}
-        <FloatingMicrophoneButton onPress={handleOpenVoiceForSelectedDate} />
+        {activeTab !== 'settings' ? <FloatingMicrophoneButton onPress={handleOpenVoiceForSelectedDate} /> : null}
         <View style={styles.footer}>
           <TouchableOpacity style={styles.footerItem} onPress={() => setActiveTab('notes')} accessibilityLabel="Danh sách" accessibilityState={{ selected: activeTab === 'notes' }}>
             <Ionicons name={activeTab === 'notes' ? 'document-text' : 'document-text-outline'} size={26} color={activeTab === 'notes' ? '#00ADFC' : '#111820'} />
@@ -453,8 +466,8 @@ function AppContent() {
           <TouchableOpacity style={styles.footerItem} onPress={() => { setActiveTab('calendar'); setViewMode('MONTH'); }} accessibilityLabel="Lịch" accessibilityState={{ selected: activeTab === 'calendar' }}>
             <Ionicons name={activeTab === 'calendar' ? 'calendar' : 'calendar-outline'} size={27} color={activeTab === 'calendar' ? '#00ADFC' : '#111820'} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.footerItem} onPress={() => setIsSettingsModalOpen(true)} accessibilityLabel="Cài đặt">
-            <Ionicons name="menu-outline" size={31} color="#111820" />
+          <TouchableOpacity style={styles.footerItem} onPress={handleOpenSettings} accessibilityLabel="Cài đặt" accessibilityState={{ selected: activeTab === 'settings' }}>
+            <Ionicons name={activeTab === 'settings' ? 'menu' : 'menu-outline'} size={31} color={activeTab === 'settings' ? '#00ADFC' : '#111820'} />
           </TouchableOpacity>
         </View>
       </View>
@@ -479,7 +492,6 @@ function AppContent() {
         onEditMeeting={handleSaveEditedMeeting}
       /> : null}
 
-      {/* Modal cài đặt */}
       {editingMeeting ? <EditMeetingModal
         key={editingMeeting.id}
         meeting={editingMeeting}
@@ -487,15 +499,6 @@ function AppContent() {
         onSave={handleSaveEditedMeeting}
       /> : null}
 
-      {isSettingsModalOpen ? <SettingsModal
-        visible={isSettingsModalOpen}
-        settings={settings}
-        onClose={() => setIsSettingsModalOpen(false)}
-        onSave={handleSaveSettings}
-        onTestNotification={(previewSettings) =>
-          AlarmManager.scheduleVoicePreview(previewSettings)
-        }
-      /> : null}
     </SafeAreaView>
     ) : <WelcomeScreen onContinue={handleWelcomeContinue} />}
     </SafeAreaProvider>
