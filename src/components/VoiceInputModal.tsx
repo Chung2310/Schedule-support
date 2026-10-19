@@ -143,7 +143,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   }, [parsed, selectedDate, timeOffsetMinutes]);
 
   const timeConflict = useMemo(() => {
-    if (!transcript.trim()) return undefined;
+    if (!transcript.trim() || saving) return undefined;
     if (editCommand) {
       if (!editPreview?.meeting || !editTarget ||
           meetingMinute(editPreview.meeting.meetingTime) === meetingMinute(editTarget.meetingTime)) return undefined;
@@ -151,7 +151,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     }
     if (!Number.isFinite(effectiveMeetingDate.getTime())) return undefined;
     return findMeetingTimeConflict(meetings, effectiveMeetingDate.toISOString());
-  }, [transcript, editCommand, editPreview, editTarget, meetings, effectiveMeetingDate]);
+  }, [transcript, saving, editCommand, editPreview, editTarget, meetings, effectiveMeetingDate]);
 
   const effectiveTitle = useMemo(() => {
     if (parsed && parsed.title) return parsed.title;

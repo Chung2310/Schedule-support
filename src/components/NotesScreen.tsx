@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Meeting } from '../types/meeting';
 import { isSameDay } from '../utils/dateUtils';
 import { CALENDAR_COLORS, getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
@@ -220,9 +221,9 @@ export function NotesScreen({ today, meetings, calendarColor, onCalendarColorCha
     </ScrollView>
 
     <Modal transparent visible={sortModalVisible} animationType="slide" onRequestClose={() => setSortModalVisible(false)}>
-      <View style={styles.modalRoot}>
+      <SafeAreaProvider style={styles.modalRoot}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setSortModalVisible(false)} accessibilityRole="button" accessibilityLabel="Đóng bảng sắp xếp" />
-        <View style={styles.bottomSheet}>
+        <SafeAreaView style={styles.bottomSheet} edges={['bottom']}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Sắp xếp lịch</Text>
             <TouchableOpacity onPress={() => setSortModalVisible(false)} accessibilityRole="button" accessibilityLabel="Đóng">
@@ -239,14 +240,14 @@ export function NotesScreen({ today, meetings, calendarColor, onCalendarColorCha
               <Ionicons name={selected ? 'radio-button-on' : 'radio-button-off'} size={21} color={selected ? '#00ADFC' : '#A7B2BE'} />
             </TouchableOpacity>;
           })}
-        </View>
-      </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
 
     <Modal transparent visible={colorModalVisible} animationType="slide" onRequestClose={() => setColorModalVisible(false)}>
-      <View style={styles.modalRoot}>
+      <SafeAreaProvider style={styles.modalRoot}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setColorModalVisible(false)} accessibilityRole="button" accessibilityLabel="Đóng bảng màu" />
-        <View style={styles.bottomSheet}>
+        <SafeAreaView style={styles.bottomSheet} edges={['bottom']}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Màu lịch</Text>
             <TouchableOpacity onPress={() => setColorModalVisible(false)} accessibilityRole="button" accessibilityLabel="Đóng">
@@ -264,8 +265,8 @@ export function NotesScreen({ today, meetings, calendarColor, onCalendarColorCha
               </TouchableOpacity>;
             })}
           </View>
-        </View>
-      </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   </View>;
 }
