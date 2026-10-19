@@ -72,6 +72,19 @@
             }
           ]
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/igen-logo-splash.png",
+          "imageWidth": 240,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/igen-logo-splash.png",
+            "backgroundColor": "#FFFFFF"
+          }
+        }
       ]
     ],
     "extra": {
