@@ -5,7 +5,6 @@ import {
   TouchableOpacity, View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Path } from 'react-native-svg';
 import { AppSettings, DEFAULT_SETTINGS } from '../types/settings';
 import { SpeechService } from '../services/speechService';
 import { MeetingVoice, type NotificationVoice } from '../services/meetingVoice';
@@ -14,8 +13,7 @@ import { legalDocuments, type LegalDocumentId } from '../content/legal-documents
 import { normalizeClockTime } from '../utils/clockTime';
 import { useAppDialog } from './AppDialog';
 
-interface SettingsModalProps {
-  visible: boolean;
+interface SettingsScreenProps {
   settings: AppSettings;
   onClose: () => void;
   onSave: (newSettings: AppSettings) => Promise<void>;
@@ -98,8 +96,8 @@ const documentLabels: Record<LegalDocumentId, string> = {
   deletion: 'Quản lý và xóa dữ liệu',
 };
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({
-  visible, settings, onClose, onSave, onTestNotification,
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({
+  settings, onClose, onSave, onTestNotification,
 }) => {
   const showDialog = useAppDialog();
   const [leadTime, setLeadTime] = useState(settings.defaultAdvanceNoticeMinutes);
@@ -158,7 +156,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!visible) return;
     let current = true;
     void MeetingVoice.getAvailableVoices()
       .then((available) => { if (current) setVoices(available); })
@@ -169,7 +166,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       previewRef.current += 1;
       void SpeechService.stop();
     };
-  }, [visible]);
+  }, []);
 
   const stopPreview = async () => {
     previewRef.current += 1;
@@ -280,23 +277,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     ? voiceDisplayName(selectedVoice, voices.indexOf(selectedVoice))
     : loadingVoices ? 'Đang tải…' : 'Chọn lại giọng';
 
-  return <><Modal visible={visible} transparent animationType="slide" onRequestClose={() => {
-    if (busyRef.current) return;
-    if (pickerTarget) setPickerTarget(null);
-    else if (legalDocument) setLegalDocument(null);
-    else void handleDone();
-  }}>
-    <View style={styles.backdrop}>
-      <View style={styles.sheet}>
+  return <>
+      <View style={styles.screen}>
         {legalDocument ? <PrivacyPolicyContent document={legalDocument} onBack={() => setLegalDocument(null)} /> : <>
-          <View style={styles.dragHandle} />
           <View style={styles.header}>
             <Text accessibilityRole="header" style={styles.title}>Cài đặt</Text>
             <TouchableOpacity style={[styles.doneButton, busy && styles.disabled]} onPress={() => void handleDone()}
               disabled={busy} hitSlop={6} accessibilityRole="button" accessibilityLabel={saving ? 'Đang lưu cài đặt' : 'Lưu và đóng cài đặt'} accessibilityState={{ disabled: busy, busy }}>
-              {saving ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                <Path d="M5 12.5 10 17l9-10" stroke="#FFFFFF" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-              </Svg>}
+              {saving ? <ActivityIndicator color="#64748B" size="small" /> : <Ionicons name="close" size={22} color="#64748B" />}
             </TouchableOpacity>
           </View>
           {saving ? <Text accessibilityLiveRegion="polite" style={styles.hint}>Đang cập nhật nhắc lịch. Giữ ứng dụng mở đến khi xong.</Text> : null}
@@ -415,8 +403,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </ScrollView>
         </>}
       </View>
-    </View>
-  </Modal>
     {Platform.OS === 'android' && pickerTarget ? <DateTimePicker key={pickerTarget} value={pickerValue}
       mode="time" display="clock" presentation="dialog" is24Hour accentColor="#00ADFC"
       positiveButton={{ label: 'Chọn' }} negativeButton={{ label: 'Hủy' }}
@@ -444,16 +430,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(10,25,47,0.46)', justifyContent: 'flex-end' },
-  sheet: { maxHeight: '90%', backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: Platform.OS === 'ios' ? 32 : 20 },
-  dragHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: '#CDD9E2', alignSelf: 'center', marginBottom: 16 },
+  screen: { flex: 1, backgroundColor: '#FFFFFF', paddingHorizontal: 20, paddingTop: 12 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   title: { color: '#0A2540', fontSize: 22, fontFamily: 'Roboto' },
-  doneButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#00ADFC',
+  doneButton: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: '#DCE6EC', backgroundColor: '#F8FBFD',
     alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.55 },
-  scroll: { flexShrink: 1 },
+  scroll: { flex: 1 },
   content: { paddingBottom: 16 },
   sectionTitle: { color: '#41748F', fontSize: 13, fontFamily: 'Roboto', letterSpacing: 0.2, marginTop: 18, marginBottom: 10, marginLeft: 4 },
   card: { backgroundColor: '#F8FBFD', borderRadius: 18, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5F0F5' },
