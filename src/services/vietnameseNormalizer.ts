@@ -55,7 +55,10 @@ export function normalizeVietnameseVoiceText(raw: string): string {
     ['ceo|xi i ô', 'CEO'], ['marketing|mác két tinh', 'Marketing'],
   ]) text = text.replace(new RegExp(`${start}(?:${pattern})${end}`, 'giu'), replacement);
   text = text.replace(new RegExp(`${start}(${number})\\s*(?:giờ|h)${end}`, 'gu'), (_, n: string) => `${wordsToNumber(n)} giờ`);
-  text = text.replace(new RegExp(`(giờ\\s*(?:kém\\s*)?)(${number})${end}`, 'gu'), (_, prefix: string, n: string) => `${prefix}${wordsToNumber(n)}`);
+  text = text.replace(new RegExp(`(giờ\\s*(?:kém\\s*)?)(${number})${end}`, 'gu'),
+    (match: string, prefix: string, n: string, offset: number, source: string) =>
+      n === 'năm' && /^\s+\d{4}(?!\d)/u.test(source.slice(offset + match.length))
+        ? match : `${prefix}${wordsToNumber(n)}`);
   text = text.replace(new RegExp(`${start}(${number})\\s*(?:giờ\\s*)?rưỡi${end}`, 'gu'), (_, n: string) => `${wordsToNumber(n)} giờ 30 phút`);
   text = text.replace(new RegExp(`${start}(ngày|mùng|tháng)\\s+(${numberWords})${end}`, 'gu'),
     (match, unit: string, n: string) => n === 'mốt' && unit === 'ngày' ? match : `${unit} ${wordsToNumber(n)}`);

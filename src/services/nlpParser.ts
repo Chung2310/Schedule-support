@@ -13,6 +13,7 @@ export interface ParsedMeetingResult {
   extractedTimeStr: string;
   defaultTimePeriod?: 'morning' | 'afternoon';
   recurrence?: MeetingRecurrence;
+  validationError?: string;
   confidence: {
     overall: number; // 0.0 - 1.0
     timeConfidence: 'HIGH' | 'MEDIUM' | 'INFERRED';
@@ -35,8 +36,25 @@ const DAY_OF_WEEK_MAP: Record<string, number> = {
   'bảy': 6,
   '7': 6,
   'chủ nhật': 0,
+  'chủ nhất': 0,
   'cn': 0,
 };
+
+const WEEKDAY_TOKEN = String.raw`(?:thứ\s*(?:hai|ba|tư|bốn|năm|sáu|bảy|[2-7])|chủ\s+nh(?:ật|ất)|cn)`;
+const EXCLUDED_WEEKDAYS = new RegExp(
+  String.raw`(?:ngoại\s+trừ|trừ|không\s+tính|nghỉ)\s+((?:${WEEKDAY_TOKEN})(?:\s*(?:,|và)\s*(?:${WEEKDAY_TOKEN}|[2-7]))*)`,
+  'u',
+);
+
+function mentionedWeekdays(text: string): number[] {
+  const weekdays = [...text.matchAll(new RegExp(WEEKDAY_TOKEN, 'gu'))]
+    .map(match => DAY_OF_WEEK_MAP[match[0].replace('thứ', '').trim()]);
+  const numericList = text.match(/thứ\s*[2-7](?:(?:\s*,\s*|\s+và\s+)(?:thứ\s*)?[2-7])+/u)?.[0];
+  if (numericList) {
+    for (const digit of numericList.match(/[2-7]/g) ?? []) weekdays.push(Number(digit) - 1);
+  }
+  return [...new Set(weekdays.filter(day => day !== undefined))].sort((a, b) => a - b);
+}
 
 export function parseVietnameseVoiceMeeting(
   input: string,
@@ -74,10 +92,16 @@ export function parseVietnameseVoiceMeeting(
 
   let extractedTimeStr = '';
   let extractedDateStr = '';
+  let validationError: string | undefined;
 
   // BƯỚC 2: Phân tích Ngày (Date)
   // 2.1. Dạng Ngày DD tháng MM
+  const isoDateMatch = lower.match(/(?<!\d)(\d{4})[.-](\d{1,2})[.-](\d{1,2})(?!\d)/u);
+  const numericDateMatch = lower.match(/(?<!\d)(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?!\d)/u);
+  const spokenYearMatch = lower.match(/(?<!\p{L})năm\s+(\d{4})(?!\d)/u);
   const dayMonthMatch = lower.match(/(?:ngày\s*)?(\d{1,2})\s*(?:tháng|\/|-)\s*(\d{1,2})/);
+  const monthYearMatch = lower.match(/(?<!\p{L})tháng\s+(\d{1,2})\s+năm\s+(\d{4})(?!\d)/u);
+  const monthlyPhrase = /(?<!\p{L})(?:hàng|hằng|mỗi)\s+tháng(?!\p{L})/u.test(lower);
   const relativeMatch = lower.match(/(?:ngày\s+)?(\d{1,2})\s+(ngày|tuần)\s+nữa|sau\s+(\d{1,2})\s+(ngày|tuần)/);
   if (relativeMatch) {
     const count = Number(relativeMatch[1] ?? relativeMatch[3]);
@@ -89,40 +113,61 @@ export function parseVietnameseVoiceMeeting(
     targetDate = date.getDate();
     dateConfidence = 'EXPLICIT';
     extractedDateStr = relativeMatch[0];
-  } else if (dayMonthMatch) {
-    const d = parseInt(dayMonthMatch[1], 10);
-    const m = parseInt(dayMonthMatch[2], 10) - 1;
-    if (d >= 1 && d <= 31 && m >= 0 && m <= 11) {
+  } else if (isoDateMatch || numericDateMatch || dayMonthMatch) {
+    const d = Number(isoDateMatch?.[3] ?? numericDateMatch?.[1] ?? dayMonthMatch?.[1]);
+    const m = Number(isoDateMatch?.[2] ?? numericDateMatch?.[2] ?? dayMonthMatch?.[2]) - 1;
+    const year = Number(isoDateMatch?.[1] ?? numericDateMatch?.[3] ?? spokenYearMatch?.[1] ?? targetYear);
+    const calendarDate = new Date(year, m, d);
+    if (year >= 1000 && m >= 0 && m <= 11 && d >= 1 && calendarDate.getFullYear() === year
+      && calendarDate.getMonth() === m && calendarDate.getDate() === d) {
       targetDate = d;
       targetMonth = m;
+      targetYear = year;
       dateConfidence = 'EXPLICIT';
-      extractedDateStr = `Ngày ${d} tháng ${m + 1}`;
-    }
+      extractedDateStr = `Ngày ${d} tháng ${m + 1} năm ${targetYear}`;
+    } else validationError = 'Ngày không hợp lệ. Hãy kiểm tra lại ngày, tháng và năm.';
   }
   // 2.1.2. Dạng "ngày DD" hoặc "mùng DD" trong tháng
   else if (lower.match(/(?:ngày|mùng)\s*(\d{1,2})(?!\s*(?:tháng|\/|-))/)) {
     const singleMatch = lower.match(/(?:ngày|mùng)\s*(\d{1,2})/);
     if (singleMatch) {
       const d = parseInt(singleMatch[1], 10);
-      if (d >= 1 && d <= 31) {
+      const year = spokenYearMatch ? Number(spokenYearMatch[1]) : targetYear;
+      const calendarDate = new Date(year, targetMonth, d);
+      if (year >= 1000 && d >= 1 && calendarDate.getFullYear() === year
+        && calendarDate.getMonth() === targetMonth && calendarDate.getDate() === d) {
         targetDate = d;
+        if (spokenYearMatch) targetYear = Number(spokenYearMatch[1]);
         dateConfidence = 'EXPLICIT';
-        extractedDateStr = `Ngày ${d}`;
+        extractedDateStr = spokenYearMatch ? `Ngày ${d} năm ${targetYear}` : `Ngày ${d}`;
+      } else if (!monthlyPhrase || d < 1 || d > 31) {
+        validationError = 'Ngày không tồn tại trong tháng. Hãy nói rõ ngày và tháng.';
       }
     }
   }
+  else if (monthYearMatch || spokenYearMatch) {
+    targetYear = Number(monthYearMatch?.[2] ?? spokenYearMatch?.[1]);
+    targetMonth = monthYearMatch ? Number(monthYearMatch[1]) - 1 : 0;
+    if (targetYear < 1000 || targetMonth < 0 || targetMonth > 11) {
+      validationError = 'Tháng hoặc năm không hợp lệ. Hãy kiểm tra lại.';
+    }
+    targetDate = 1;
+    dateConfidence = 'EXPLICIT';
+    extractedDateStr = monthYearMatch ? `Tháng ${targetMonth + 1} năm ${targetYear}` : `Năm ${targetYear}`;
+  }
   // 2.2. Dạng Thứ trong tuần: "thứ 2", "thứ hai", "thứ sáu tuần sau"
   else {
-    const dowMatch = lower.match(/(?:vào\s*)?(thứ\s*(?:hai|ba|tư|bốn|năm|sáu|bảy|2|3|4|5|6|7)|chủ nhật)/);
+    const dowMatch = lower.match(/(?:vào\s*)?(thứ\s*(?:hai|ba|tư|bốn|năm|sáu|bảy|2|3|4|5|6|7)|chủ nh(?:ật|ất))/);
     if (dowMatch) {
       const dowKey = dowMatch[1].replace('thứ', '').trim();
       const targetDow = DAY_OF_WEEK_MAP[dowKey];
       if (targetDow !== undefined) {
         const isNextWeek = lower.includes('tuần sau') || lower.includes('tuần tới');
+        const isPreviousWeek = lower.includes('tuần trước');
         const currentDow = now.getDay();
         let daysToAdd = (targetDow - currentDow + 7) % 7;
-        if (isNextWeek || lower.includes('tuần này')) {
-          daysToAdd = (targetDow + 6) % 7 - (currentDow + 6) % 7 + (isNextWeek ? 7 : 0);
+        if (isNextWeek || isPreviousWeek || lower.includes('tuần này')) {
+          daysToAdd = (targetDow + 6) % 7 - (currentDow + 6) % 7 + (isNextWeek ? 7 : isPreviousWeek ? -7 : 0);
         } else if (daysToAdd === 0) daysToAdd = 7;
         const d = new Date(now);
         d.setDate(d.getDate() + daysToAdd);
@@ -130,11 +175,27 @@ export function parseVietnameseVoiceMeeting(
         targetMonth = d.getMonth();
         targetYear = d.getFullYear();
         dateConfidence = 'EXPLICIT';
-        extractedDateStr = `${dowMatch[1].toUpperCase()}${isNextWeek ? ' (tuần sau)' : ''}`;
+        extractedDateStr = `${dowMatch[1].toUpperCase()}${isNextWeek ? ' (tuần sau)' : isPreviousWeek ? ' (tuần trước)' : ''}`;
       }
     }
     // 2.3. Dạng tương đối: ngày mai, ngày mốt, hôm nay
-    else if (lower.includes('ngày mốt') || lower.includes('ngày kia')) {
+    else if (lower.includes('hôm kia')) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 2);
+      targetDate = d.getDate();
+      targetMonth = d.getMonth();
+      targetYear = d.getFullYear();
+      dateConfidence = 'EXPLICIT';
+      extractedDateStr = 'Hôm kia';
+    } else if (lower.includes('hôm qua')) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 1);
+      targetDate = d.getDate();
+      targetMonth = d.getMonth();
+      targetYear = d.getFullYear();
+      dateConfidence = 'EXPLICIT';
+      extractedDateStr = 'Hôm qua';
+    } else if (lower.includes('ngày mốt') || lower.includes('ngày kia')) {
       const d = new Date(now);
       d.setDate(d.getDate() + 2);
       targetDate = d.getDate();
@@ -158,11 +219,27 @@ export function parseVietnameseVoiceMeeting(
 
   // BƯỚC 3: Phân tích Giờ (Time)
   // Các mẫu: "14 giờ 30", "14 giờ", "14h30", "14:30", "9 giờ"
-  const hourMinMatch = relativeDatetime ? null : lower.match(/(\d{1,2})\s*(?:giờ|h(?!\p{L})|:)\s*(?:(kém)\s*)?(\d{1,2})?\s*(?:phút)?/u);
+  const clockPattern = /(?<![\p{L}\p{N}])(\d{1,3})\s*(?:giờ|h(?!\p{L})|:)(?:\s*(kém)?\s*(\d{1,3})(?!\s*(?:[./-]|tháng|\d)))?\s*(?:phút)?/gu;
+  const clockMatches = relativeDatetime ? [] : [...lower.matchAll(clockPattern)];
+  const hourMinMatch = clockMatches[0] ?? null;
+  if (clockMatches.length > 1) validationError = 'Có nhiều giờ trong một lịch. Hãy nói rõ từng lịch kèm ngày và giờ riêng.';
+  for (const match of lower.matchAll(/(?<![\p{L}\p{N}.,/])(\d{1,3})\s*[.,]\s*(\d{2})(?![\p{L}\p{N}]|\s*[.,/]\s*\d)/gu)) {
+    if (Number(match[1]) <= 23 && Number(match[2]) <= 59) continue;
+    const before = lower.slice(0, match.index);
+    const after = lower.slice(match.index + match[0].length);
+    if (/(?:phiên bản|version|mã|giá|doanh thu|doanh số)\s*$/u.test(before)) continue;
+    if (/(?:đặt\s+lịch|tạo\s+lịch|lúc|vào|hẹn)\s*$/u.test(before)
+      || /^\s*(?:ngày\s+(?:mai|mốt|kia|\d{1,2})|hôm\s+nay|sáng|trưa|chiều|tối)/u.test(after)) {
+      validationError ??= 'Giờ không hợp lệ. Hãy nói lại giờ và phút.';
+    }
+  }
 
   if (hourMinMatch) {
     let h = parseInt(hourMinMatch[1], 10);
     const m = hourMinMatch[3] ? parseInt(hourMinMatch[3], 10) : 0;
+    if (h > 23 || m > 59 || (hourMinMatch[2] && (m === 0 || h === 0))) {
+      validationError = 'Giờ không hợp lệ. Hãy nói lại giờ và phút.';
+    }
     // A daypart must be adjacent to the time, possibly across a relative day.
     const before = lower.slice(0, hourMinMatch.index);
     const after = lower.slice((hourMinMatch.index ?? 0) + hourMinMatch[0].length);
@@ -224,25 +301,58 @@ export function parseVietnameseVoiceMeeting(
   }
 
   const workdays = /(?:từ\s+)?thứ\s*(?:2|hai)\s+đến\s+thứ\s*(?:6|sáu)|ngày\s+làm\s+việc|các\s+ngày\s+trong\s+tuần/u.test(lower);
-  const daily = workdays || /(?<!\p{L})(?:hàng|hằng|mỗi)\s+ngày(?!\p{L})/u.test(lower);
+  const daily = workdays || /(?<!khách\s)(?<!\p{L})(?:hàng|hằng|mỗi)\s+ngày(?!\p{L})/u.test(lower);
   const intervalMatch = lower.match(/cứ\s+(\d{1,2})\s+tuần(?:\s+một\s+lần)?|(?:mỗi|cách)\s+(\d{1,2})\s+tuần/u);
   const weekly = !daily && (/((?:hàng|hằng|mỗi)\s+tuần)(?!\p{L})/u.test(lower) || !!intervalMatch);
   const monthly = !daily && !weekly && /(?<!\p{L})(?:hàng|hằng|mỗi)\s+tháng(?!\p{L})/u.test(lower);
+  if (/^(?:(?:tôi|mình|em)\s+)?(?:đừng|không(?:\s+cần|\s+muốn)?|chưa)\s+(?:đặt|tạo|nhắc|lên|ghi)\s+(?:lịch|cuộc\s+hẹn|tôi)/u.test(lower)) {
+    validationError = 'Yêu cầu không đặt lịch. Chưa tạo lịch nào.';
+  }
+  if (/(?<!\p{L})(?:hàng|hằng|mỗi)\s+năm|(?:cứ|mỗi|cách)\s+\d+\s+ngày|cách\s+ngày/u.test(lower)) {
+    validationError = 'Kiểu lặp này chưa được hỗ trợ. Hãy nói rõ từng lịch hoặc chọn lặp hằng ngày, tuần, tháng.';
+  }
   let recurrence: MeetingRecurrence | undefined;
   if (daily || weekly || monthly) {
-    const weekdayTokens = [...lower.matchAll(/(?:thứ\s*(?:hai|ba|tư|bốn|năm|sáu|bảy|2|3|4|5|6|7)|chủ nhật)/gu)];
-    const weekdays = [...new Set(weekdayTokens.map(match => DAY_OF_WEEK_MAP[match[0].replace('thứ', '').trim()]))];
-    const numericList = lower.match(/thứ\s*[2-7](?:(?:\s*,\s*|\s+và\s+)(?:thứ\s*)?[2-7])+/u)?.[0];
-    if (numericList) {
-      for (const digit of numericList.match(/[2-7]/g) ?? []) weekdays.push(Number(digit) - 1);
+    const endMatch = lower.match(/(?:đến|tới)\s+(?:hết\s+)?(?:ngày\s+(\d{1,2})\s+)?tháng\s+(\d{1,2})(?:\s+năm\s+(\d{4}))?/u);
+    const explicitStartYear = !!(spokenYearMatch && (!endMatch || (spokenYearMatch.index ?? 0) < (endMatch.index ?? 0)))
+      || !!isoDateMatch || !!numericDateMatch;
+    const relativeDayMatch = lower.match(/(?:ngày\s+(?:mai|mốt|kia)|(?:sáng|trưa|chiều|tối)\s+mai|hôm\s+(?:nay|qua|kia))/u);
+    const spokenStart = [isoDateMatch, numericDateMatch, dayMonthMatch, relativeMatch, relativeDayMatch]
+      .some(match => !!match && (!endMatch || (match.index ?? 0) < (endMatch.index ?? 0)))
+      || (weekly && /tuần\s+(?:sau|tới|này)/u.test(lower) && new RegExp(WEEKDAY_TOKEN, 'u').test(lower));
+    const startReference = (explicitStartYear || spokenStart) && dateConfidence === 'EXPLICIT'
+      ? new Date(targetYear, targetMonth, targetDate) : now;
+    if (spokenStart && dayMonthMatch && !explicitStartYear
+      && startReference < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+      startReference.setFullYear(startReference.getFullYear() + 1);
     }
-    const selectedWeekdays = workdays ? [1, 2, 3, 4, 5] : [...new Set(weekdays)].sort((a, b) => a - b);
-    if (weekly && !selectedWeekdays.length) selectedWeekdays.push(now.getDay());
-    const monthDay = monthly ? Number(lower.match(/ngày\s+(\d{1,2})(?!\s*tháng)/u)?.[1] ?? now.getDate()) : undefined;
-    let first = new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHours, targetMinutes, 0, 0);
+    const exclusion = daily ? lower.match(EXCLUDED_WEEKDAYS) : null;
+    if (daily && /(?:ngoại\s+trừ|trừ|không\s+tính|nghỉ)\s+/u.test(lower) && !exclusion) {
+      validationError = 'Chưa hiểu ngày cần loại trừ. Hãy nói rõ thứ trong tuần.';
+    }
+    if (/(?:đến|tới)\s+(?:hết\s+)?năm\s+\d{4}|(?:đến|tới)\s+ngày\s+\d{1,2}[/-]\d{1,2}|trong\s+\d+\s+(?:ngày|tuần|tháng)/u.test(lower)) {
+      validationError = 'Chưa hiểu ngày kết thúc lịch lặp. Hãy nói “đến hết tháng” kèm tháng và năm.';
+    }
+    const excludedWeekdays = exclusion ? mentionedWeekdays(exclusion[1]) : [];
+    const includedText = exclusion ? lower.replace(exclusion[0], '') : lower;
+    const weekdayTokens = [...includedText.matchAll(new RegExp(WEEKDAY_TOKEN, 'gu'))];
+    const weekdays = mentionedWeekdays(includedText);
+    if (daily && exclusion && !workdays && weekdayTokens.length) {
+      validationError = 'Các ngày cần loại trừ chưa rõ. Hãy nối các thứ bằng “và” hoặc dấu phẩy.';
+    }
+    const selectedWeekdays = workdays ? [1, 2, 3, 4, 5] : weekdays.length ? weekdays : excludedWeekdays.length ? [0, 1, 2, 3, 4, 5, 6] : [];
+    if (excludedWeekdays.length) {
+      for (const day of excludedWeekdays) {
+        const index = selectedWeekdays.indexOf(day);
+        if (index >= 0) selectedWeekdays.splice(index, 1);
+      }
+    }
+    if (weekly && !selectedWeekdays.length) selectedWeekdays.push(startReference.getDay());
+    const monthDay = monthly ? Number(lower.match(/ngày\s+(\d{1,2})(?!\d|\s*tháng)/u)?.[1] ?? startReference.getDate()) : undefined;
+    let first = new Date(startReference.getFullYear(), startReference.getMonth(), startReference.getDate(), targetHours, targetMinutes, 0, 0);
     if (monthly) {
       for (let offset = 0; offset <= 12; offset++) {
-        const candidate = new Date(now.getFullYear(), now.getMonth() + offset, monthDay, targetHours, targetMinutes);
+        const candidate = new Date(startReference.getFullYear(), startReference.getMonth() + offset, monthDay, targetHours, targetMinutes);
         if (candidate.getDate() === monthDay && candidate > now) { first = candidate; break; }
       }
     } else {
@@ -256,7 +366,6 @@ export function parseVietnameseVoiceMeeting(
       : workdays ? 'Thứ 2 đến thứ 6'
         : daily ? 'Hàng ngày' : `${weekdayTokens[0]?.[0] ?? 'Cùng thứ'} hàng tuần`;
 
-    const endMatch = lower.match(/(?:đến|tới)\s+(?:hết\s+)?(?:ngày\s+(\d{1,2})\s+)?tháng\s+(\d{1,2})(?:\s+năm\s+(\d{4}))?/u);
     const defaultEnd = !endMatch;
     let until: Date;
     if (endMatch) {
@@ -270,11 +379,12 @@ export function parseVietnameseVoiceMeeting(
         until = new Date(0);
       }
     } else {
-      until = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const horizonStart = explicitStartYear ? first : now;
+      until = new Date(horizonStart.getFullYear() + 1, horizonStart.getMonth(), horizonStart.getDate(), 23, 59, 59, 999);
     }
     recurrence = {
       frequency: monthly ? 'monthly' : daily ? 'daily' : 'weekly',
-      weekdays: selectedWeekdays.length ? selectedWeekdays : undefined,
+      weekdays: selectedWeekdays.length || excludedWeekdays.length ? selectedWeekdays : undefined,
       intervalWeeks: weekly ? Number(intervalMatch?.[1] ?? intervalMatch?.[2] ?? 1) : undefined,
       monthDay,
       until,
@@ -282,8 +392,18 @@ export function parseVietnameseVoiceMeeting(
     };
   }
 
+  if (!recurrence) {
+    const calendarMentions = [...lower.matchAll(/(?<!\d)(?:\d{4}[.-]\d{1,2}[.-]\d{1,2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{4})?|\d{1,2}\.\d{1,2}\.\d{4}|\d{1,2}\s+tháng\s+\d{1,2}(?:\s+năm\s+\d{4})?|(?:ngày|mùng)\s+\d{1,2}(?!\d|\s*(?:tháng|[./-]))|ngày\s+(?:mai|mốt|kia)|hôm\s+(?:nay|qua|kia)|(?:sáng|trưa|chiều|tối)\s+mai)/gu)].length;
+    const weekdayMentions = [...lower.matchAll(new RegExp(WEEKDAY_TOKEN, 'gu'))].length;
+    if (calendarMentions + weekdayMentions > 1) {
+      validationError = 'Có nhiều ngày trong một lịch. Hãy nói rõ từng lịch kèm ngày và giờ riêng.';
+    }
+  }
+
   // BƯỚC 4: Phân tích Tiêu đề cuộc họp (Meeting Title)
   let cleaned = normalizedText;
+  const excludedDaysInTitle = daily ? cleaned.match(EXCLUDED_WEEKDAYS) : null;
+  if (excludedDaysInTitle) cleaned = cleaned.replace(excludedDaysInTitle[0], '');
   if (relativeDatetime && relativeTime) cleaned = cleaned.replace(relativeTime[0], '');
 
   // Lọc các tiền tố thường gặp
@@ -299,17 +419,21 @@ export function parseVietnameseVoiceMeeting(
 
   // Xóa các cụm ngày giờ đã nhận diện khỏi tiêu đề
   cleaned = cleaned
+    .replace(/(?:từ\s+)?(?:ngày\s*)?\d{1,2}\s*tháng\s*\d{1,2}\s*năm\s*\d{4}/giu, '')
+    .replace(/(?<!\d)\d{4}[.-]\d{1,2}[.-]\d{1,2}(?!\d)/gu, '')
+    .replace(/(?<!\d)\d{1,2}[./-]\d{1,2}[./-]\d{4}(?!\d)/gu, '')
+    .replace(/(?<!\p{L})(?:năm\s+\d{4}|tháng\s+\d{1,2}\s+năm\s+\d{4})(?!\d)/gu, '')
     .replace(/(?:đến|tới)\s+(?:hết\s+)?(?:ngày\s+\d{1,2}\s+)?tháng\s+\d{1,2}(?:\s+năm\s+\d{4})?/giu, '')
     .replace(/(?:từ\s+)?thứ\s*(?:2|hai)\s+đến\s+thứ\s*(?:6|sáu)|ngày\s+làm\s+việc|các\s+ngày\s+trong\s+tuần/giu, '')
     .replace(/(?:thứ\s*(?:hai|ba|tư|bốn|năm|sáu|bảy|[2-7])|chủ nhật)(?:\s*(?:,|và)\s*(?:thứ\s*)?(?:hai|ba|tư|bốn|năm|sáu|bảy|[2-7]))+/giu, '')
     .replace(/cứ\s+\d{1,2}\s+tuần(?:\s+một\s+lần)?|(?:mỗi|cách)\s+\d{1,2}\s+tuần/giu, '')
-    .replace(/(?<!\p{L})(?:hàng|hằng|mỗi)\s+(?:ngày|tuần|tháng)(?!\p{L})/giu, '')
+    .replace(/(?<!khách\s)(?<!\p{L})(?:hàng|hằng|mỗi)\s+(?:ngày|tuần|tháng)(?!\p{L})/giu, '')
     .replace(monthly ? /ngày\s+\d{1,2}(?!\s*tháng)/giu : /$^/g, '')
     .replace(/(?:ngày\s+)?\d{1,2}\s+(?:ngày|tuần)\s+nữa|sau\s+\d{1,2}\s+(?:ngày|tuần)/gi, '')
     .replace(/(?:vào\s*)?(?:lúc\s*)?\d{1,2}\s*(?:giờ|h(?!\p{L})|:)\s*(?:kém\s*)?\d{0,2}\s*(?:phút)?/giu, '')
-    .replace(/(?:vào\s*)?(?:ngày\s*)?\d{1,2}\s*(?:tháng|\/|-)\s*\d{1,2}/gi, '')
-    .replace(/(?:vào\s*)?(?:ngày\s*)?(?:hôm nay|ngày mai|ngày mốt|ngày kia)/gi, '')
-    .replace(/(?:thứ\s*(?:hai|ba|tư|bốn|năm|sáu|bảy|2|3|4|5|6|7)|chủ nhật)(?:\s*tuần\s*(?:sau|tới|này))?/gi, '')
+    .replace(/(?:từ\s+)?(?:vào\s*)?(?:ngày\s*)?\d{1,2}\s*(?:tháng|\/|-)\s*\d{1,2}/gi, '')
+    .replace(/(?:vào\s*)?(?:ngày\s*)?(?:hôm nay|hôm qua|hôm kia|ngày mai|ngày mốt|ngày kia)/gi, '')
+    .replace(/(?:thứ\s*(?:hai|ba|tư|bốn|năm|sáu|bảy|2|3|4|5|6|7)|chủ nh(?:ật|ất))(?:\s*tuần\s*(?:sau|tới|này|trước))?/gi, '')
     .replace(/(?<!\p{L})(?:buổi\s*)?(?:sáng|trưa|chiều|tối|đêm)(?:\s*nay|\s*mai)?(?!\p{L})/giu, '')
     .replace(/\b(?:vào lúc|lúc|vào ngày|vào|ngày)\b/gi, ' ')
     .trim();
@@ -347,6 +471,7 @@ export function parseVietnameseVoiceMeeting(
     extractedTimeStr: extractedTimeStr || `${hourDisplay}:${minDisplay.toString().padStart(2, '0')}`,
     defaultTimePeriod,
     recurrence,
+    validationError,
     confidence: {
       overall: Math.min(1.0, overallScore),
       timeConfidence,
@@ -367,7 +492,7 @@ export function parseVietnameseVoiceSchedule(
   if (clauses.length > 1) {
     const items = clauses.map(clause => parseVietnameseVoiceMeeting(clause, now, selectedDate, daypartTimes));
     if (items.every(item => !item.recurrence && item.confidence.timeConfidence === 'HIGH'
-      && item.confidence.dateConfidence === 'EXPLICIT')) return items;
+      && (item.confidence.dateConfidence === 'EXPLICIT' || !!item.validationError))) return items;
   }
   return [parseVietnameseVoiceMeeting(input, now, selectedDate, daypartTimes)];
 }

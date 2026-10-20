@@ -82,7 +82,15 @@ export const StorageService = {
     });
   },
 
-  deleteMeeting(id: string): Promise<Meeting[]> {
-    return mutateMeetings(() => DatabaseService.deleteMeeting(id));
+  deleteMeeting(id: string, expected?: Meeting): Promise<Meeting[]> {
+    return mutateMeetings(async () => {
+      if (expected) {
+        const current = (await DatabaseService.getMeetings()).find(meeting => meeting.id === id);
+        if (!current || current.title !== expected.title || current.meetingTime !== expected.meetingTime) {
+          throw new Error('Lịch đã thay đổi hoặc không còn tồn tại. Hãy mở lại để kiểm tra trước khi xóa.');
+        }
+      }
+      return DatabaseService.deleteMeeting(id);
+    });
   },
 };
