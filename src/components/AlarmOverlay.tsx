@@ -16,12 +16,14 @@ interface AlarmOverlayProps {
   visible: boolean;
   meeting: Meeting | null;
   onDismiss: () => void;
+  onReschedule: (meeting: Meeting) => void;
 }
 
 export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
   visible,
   meeting,
   onDismiss,
+  onReschedule,
 }) => {
   const [pulseAnim] = useState(() => new Animated.Value(1));
   const [rippleAnim] = useState(() => new Animated.Value(0));
@@ -134,6 +136,16 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
               <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" />
               <Text style={styles.dismissTitle}>Đã nhớ</Text>
             </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.rescheduleButton}
+            activeOpacity={0.85}
+            onPress={() => onReschedule(meeting)}
+            accessibilityRole="button"
+            accessibilityLabel="Đặt lại lịch hẹn"
+          >
+            <Ionicons name="calendar-outline" size={20} color="#0A2540" />
+            <Text style={styles.rescheduleText}>Đặt lại lịch</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -256,6 +268,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15, fontFamily: 'Roboto',
     letterSpacing: 0.2,
+  },
+  rescheduleButton: {
+    width: '100%',
+    marginTop: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 15,
+  },
+  rescheduleText: {
+    color: '#0A2540',
+    fontSize: 15,
+    fontFamily: 'Roboto',
   },
   dismissSubtitle: {
     color: 'rgba(255, 255, 255, 0.9)',

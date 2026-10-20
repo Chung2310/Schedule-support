@@ -105,6 +105,14 @@ class DatabaseServiceImpl {
     return this.getMeetings();
   }
 
+  async addMeetings(meetings: Meeting[]): Promise<Meeting[]> {
+    const db = await this.getDB();
+    await db.withExclusiveTransactionAsync(async (transaction) => {
+      for (const meeting of meetings) await this.insertMeetingInternal(transaction, meeting);
+    });
+    return this.getMeetings();
+  }
+
   async updateMeeting(meeting: Meeting): Promise<Meeting[]> {
     try {
       const db = await this.getDB();

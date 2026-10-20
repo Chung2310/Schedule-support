@@ -6,6 +6,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Meeting } from '../types/meeting';
 import { isSameDay } from '../utils/dateUtils';
 import { CALENDAR_COLORS, getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
+import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
 import { Daypart, DaypartIcon, ScheduleIcon } from './ScheduleIcons';
 import { useAppDialog, useCancelMeetingDialog } from './AppDialog';
 
@@ -81,7 +82,7 @@ function ScheduleCard({
     <View style={[styles.accent, { backgroundColor: getCalendarAccentColor(calendarColor) }]} />
     <View style={styles.timeColumn}>
       <Text style={styles.timeText}>{date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</Text>
-      <Text style={styles.leadText}>-{meeting.advanceNoticeMinutes}p</Text>
+      <Text style={styles.leadText}>-{formatAdvanceNotice(meeting.advanceNoticeMinutes, true)}</Text>
     </View>
     <View style={styles.meetingContent}>
       <Text style={styles.meetingTitle} numberOfLines={2}>{meeting.title}</Text>
@@ -109,6 +110,7 @@ export function NotesScreen({ today, meetings, calendarColor, onCalendarColorCha
   const [sortMode, setSortMode] = useState<SortMode>('reminder');
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [colorModalVisible, setColorModalVisible] = useState(false);
+  const [visibleOtherCount, setVisibleOtherCount] = useState(30);
 
   useEffect(() => {
     let mounted = true;
@@ -133,7 +135,10 @@ export function NotesScreen({ today, meetings, calendarColor, onCalendarColorCha
   const { todayMeetings, groups, otherMeetings } = useMemo(() => {
     const sorted = [...meetings].sort((a, b) => compareMeetings(a, b, sortMode));
     const todayItems = sorted.filter(meeting => isSameDay(new Date(meeting.meetingTime), today));
-    const otherItems = sorted.filter(meeting => !isSameDay(new Date(meeting.meetingTime), today));
+    const otherItems = sorted.filter(meeting => {
+      const meetingDate = new Date(meeting.meetingTime);
+      return meetingDate.getTime() > today.getTime() && !isSameDay(meetingDate, today);
+    });
     const dayparts: ScheduleGroup[] = [
       { period: 'morning', label: 'Buổi sáng', items: todayItems.filter(meeting => new Date(meeting.meetingTime).getHours() < 12) },
       { period: 'afternoon', label: 'Buổi chiều', items: todayItems.filter(meeting => {
@@ -216,7 +221,10 @@ export function NotesScreen({ today, meetings, calendarColor, onCalendarColorCha
           <Text style={styles.otherTitle}>Lịch ngày khác</Text>
           <Text style={styles.otherCount}>{otherMeetings.length} cuộc hẹn</Text>
         </View>
-        {otherMeetings.map(meeting => <ScheduleCard key={meeting.id} meeting={meeting} calendarColor={calendarColor} showDate onSimulateAlarm={onSimulateAlarm} onDelete={onDelete} onEdit={onEdit} />)}
+        {otherMeetings.slice(0, visibleOtherCount).map(meeting => <ScheduleCard key={meeting.id} meeting={meeting} calendarColor={calendarColor} showDate onSimulateAlarm={onSimulateAlarm} onDelete={onDelete} onEdit={onEdit} />)}
+        {otherMeetings.length > visibleOtherCount ? <TouchableOpacity onPress={() => setVisibleOtherCount(count => count + 30)} accessibilityRole="button" style={styles.moreButton}>
+          <Text style={styles.moreText}>Xem thêm lịch</Text>
+        </TouchableOpacity> : null}
       </View> : null}
     </ScrollView>
 
@@ -312,6 +320,8 @@ const styles = StyleSheet.create({
   otherSection: { marginTop: 8, gap: 4 },
   otherTitle: { color: '#0A2540', fontFamily: 'Roboto', fontSize: 16, flex: 1, marginBottom: 7 },
   otherCount: { color: '#8494A5', fontFamily: 'Roboto', fontSize: 12 },
+  moreButton: { alignSelf: 'center', paddingHorizontal: 18, paddingVertical: 12 },
+  moreText: { color: '#078FD5', fontFamily: 'Roboto', fontSize: 14 },
   modalRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15, 23, 42, 0.46)' },
   bottomSheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 30 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },

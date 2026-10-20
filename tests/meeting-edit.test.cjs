@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createLoader } = require('./load-typescript.cjs');
-const { applyMeetingEdit, meetingEditFields } = createLoader()('src/utils/meetingEdit.ts');
+const { applyMeetingEdit, meetingEditFields, suggestRescheduleTime } = createLoader()('src/utils/meetingEdit.ts');
 const now = new Date(2026, 9, 16, 12);
 const meeting = {
   id: 'existing', title: 'Họp cũ', meetingTime: new Date(2026, 9, 17, 10).toISOString(),
@@ -32,9 +32,23 @@ test('title-only edits do not reactivate an acknowledged meeting', () => {
   assert.equal(changed.nagCount, 2);
 });
 
-test('editing a meeting into the past does not create a new active alarm', () => {
-  const changed = applyMeetingEdit(meeting, { ...meetingEditFields(meeting), date: '15/10/2026' }, now);
-  assert.equal(changed.status, 'EXPIRED');
+test('editing a meeting into the past is rejected', () => {
+  assert.throws(() => applyMeetingEdit(meeting, { ...meetingEditFields(meeting), date: '15/10/2026' }, now), /thời điểm đã qua/);
+});
+
+test('reschedule starts 30 minutes ahead and never reuses the old minute', () => {
+  const original = { ...meeting, meetingTime: new Date(2026, 9, 16, 12, 31).toISOString() };
+  const suggested = suggestRescheduleTime(original, new Date(2026, 9, 16, 12, 0, 10));
+  assert.equal(suggested.getHours(), 12);
+  assert.equal(suggested.getMinutes(), 46);
+  const edited = applyMeetingEdit(original, {
+    ...meetingEditFields(original),
+    date: `${String(suggested.getDate()).padStart(2, '0')}/${String(suggested.getMonth() + 1).padStart(2, '0')}/${suggested.getFullYear()}`,
+    time: `${String(suggested.getHours()).padStart(2, '0')}:${String(suggested.getMinutes()).padStart(2, '0')}`,
+  }, new Date(2026, 9, 16, 12, 0, 10));
+  assert.equal(edited.status, 'UPCOMING');
+  assert.equal(edited.nagCount, 0);
+  assert.equal(edited.acknowledgedAt, undefined);
 });
 
 for (const [field, value] of [

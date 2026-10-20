@@ -11,6 +11,7 @@ import { MeetingVoice, type NotificationVoice } from '../services/meetingVoice';
 import { PrivacyPolicyContent } from './PrivacyPolicyContent';
 import { legalDocuments, type LegalDocumentId } from '../content/legal-documents';
 import { normalizeClockTime } from '../utils/clockTime';
+import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
 import { useAppDialog } from './AppDialog';
 
 interface SettingsScreenProps {
@@ -45,10 +46,10 @@ function MinuteOptions({ label, value, options, onChange }: {
         style={[styles.option, value === minutes && styles.optionSelected]}
         onPress={() => onChange(minutes)}
         accessibilityRole="radio"
-        accessibilityLabel={label + ' ' + minutes + ' phút'}
+        accessibilityLabel={label + ' ' + formatAdvanceNotice(minutes)}
         accessibilityState={{ checked: value === minutes }}
       >
-        <Text style={[styles.optionText, value === minutes && styles.optionTextSelected]}>{minutes} phút</Text>
+        <Text style={[styles.optionText, value === minutes && styles.optionTextSelected]}>{formatAdvanceNotice(minutes)}</Text>
       </TouchableOpacity>)}
     </View>
   </View>;
@@ -297,7 +298,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onChange={(value) => { const [nextHour = '', nextMinute = ''] = value.split(':'); setHour(nextHour); setMinute(nextMinute); setTimeError(''); }} />
               {timeError ? <Text accessibilityLiveRegion="polite" style={styles.error}>{timeError}</Text> : null}
               <View style={styles.divider} />
-              <MinuteOptions label="Báo trước" value={leadTime} options={[5, 10, 15, 30]} onChange={setLeadTime} />
+              <MinuteOptions label="Báo trước" value={leadTime} options={[5, 10, 15, 30, 60, 1440, 4320]} onChange={setLeadTime} />
               <View style={styles.divider} />
               <MinuteOptions label="Nhắc lại mỗi" value={repeatInterval} options={[2, 5, 10]} onChange={setRepeatInterval} />
             </View>
