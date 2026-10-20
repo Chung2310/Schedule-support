@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createLoader } = require('./load-typescript.cjs');
 const load = createLoader();
-const { voiceEditCommand: command, voiceEditFields: fields } = load('src/services/voiceMeetingCommand.ts');
+const { voiceEditCommand: command, voiceEditFields: fields, voiceDeleteCommand: deleteCommand } = load('src/services/voiceMeetingCommand.ts');
 const { applyMeetingEdit } = load('src/utils/meetingEdit.ts');
 const now = new Date(2026, 9, 16, 8);
 const meeting = { id: 'one', title: 'Họp với khách hàng', meetingTime: new Date(2026, 9, 16, 10).toISOString(), advanceNoticeMinutes: 15, repeatIntervalMinutes: 5, status: 'UPCOMING', nagCount: 0, createdAt: now.toISOString() };
@@ -13,6 +13,56 @@ function edit(text) {
 }
 test('ordinary create requests stay in the create flow', () => {
   assert.equal(command('Đặt lịch họp 10h ngày mai', [meeting], now), null);
+});
+
+test('voice deletion selects an existing meeting and never becomes a create request', () => {
+  const candidates = [meeting, { ...meeting, id: 'two', meetingTime: new Date(2026, 9, 17, 10).toISOString() }];
+  assert.equal(deleteCommand('xóa lịch họp với khách hàng', candidates, now).candidates.length, 2);
+  assert.equal(deleteCommand('hủy lịch họp với khách hàng lúc 10h hôm nay', candidates, now).candidates[0].id, 'one');
+  assert.equal(deleteCommand('xóa giúp tôi lịch họp với khách hàng hôm nay', candidates, now).candidates[0]?.id, 'one');
+  assert.equal(deleteCommand('xóa lịch họp không tồn tại', candidates, now).candidates.length, 0);
+  assert.ok(deleteCommand('xóa lịch họp không tồn tại', candidates, now));
+  assert.equal(deleteCommand('đừng xóa lịch họp với khách hàng', candidates, now).error, 'Yêu cầu có phủ định. Chưa xóa lịch nào.');
+  assert.equal(deleteCommand('tôi không muốn xóa lịch họp với khách hàng', candidates, now).error, 'Yêu cầu có phủ định. Chưa xóa lịch nào.');
+  assert.equal(deleteCommand('thôi đừng xóa lịch họp với khách hàng', candidates, now).error, 'Yêu cầu có phủ định. Chưa xóa lịch nào.');
+  assert.equal(deleteCommand('chưa xóa lịch họp với khách hàng', candidates, now).error, 'Yêu cầu có phủ định. Chưa xóa lịch nào.');
+  assert.ok(deleteCommand('xóa tất cả lịch', candidates, now).error);
+});
+
+test('voice deletion can select a meeting in a future year', () => {
+  const future = { ...meeting, id: 'future', meetingTime: new Date(2030, 9, 20, 10).toISOString() };
+  const parsed = deleteCommand('xóa lịch họp với khách hàng ngày 20 tháng 10 năm 2030 lúc 10h', [meeting, future], now);
+  assert.equal(parsed.candidates.length, 1);
+  assert.equal(parsed.candidates[0].id, 'future');
+  assert.equal(deleteCommand('xóa lịch họp với khách hàng 20.10.2030 lúc 10h', [meeting, future], now).candidates[0]?.id, 'future');
+  assert.equal(command('dời lịch họp với khách hàng 20.10.2030 sang 11h', [meeting, future], now).candidates[0]?.id, 'future');
+});
+
+test('date without a spoken year offers matching future years for safe selection', () => {
+  const future = { ...meeting, id: 'future', meetingTime: new Date(2030, 9, 20, 10).toISOString() };
+  const selector = 'họp với khách hàng ngày 20 tháng 10';
+  assert.equal(deleteCommand(`xóa lịch ${selector}`, [future], now).candidates[0]?.id, 'future');
+  const editCommand = command(`dời lịch ${selector} sang 11h`, [future], now);
+  assert.equal(editCommand.candidates[0]?.id, 'future');
+  assert.equal(fields(editCommand, future, now).time, '11:00');
+});
+
+test('voice edit and delete can locate past meetings by relative day or weekday', () => {
+  const reference = new Date(2026, 9, 20, 8);
+  const yesterday = { ...meeting, id: 'yesterday', meetingTime: new Date(2026, 9, 19, 10).toISOString() };
+  const lastWednesday = { ...meeting, id: 'last-week', meetingTime: new Date(2026, 9, 14, 10).toISOString() };
+  assert.equal(deleteCommand('xóa lịch họp với khách hàng lúc 10h hôm qua', [yesterday, lastWednesday], reference).candidates[0]?.id, 'yesterday');
+  assert.equal(command('dời lịch họp với khách hàng thứ 4 tuần trước sang 11h ngày mai', [yesterday, lastWednesday], reference).candidates[0]?.id, 'last-week');
+});
+
+test('deletion does not mistake an ordinary word beginning with bỏ for a command', () => {
+  assert.equal(deleteCommand('bỏng tay ngày mai', [meeting], now), null);
+});
+
+test('customer meeting with a spoken day is still editable', () => {
+  const parsed = command('dời lịch họp với khách hàng ngày 16 tháng 10 sang 11h', [meeting], now);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.candidates[0]?.id, meeting.id);
 });
 
 for (const wording of ['Rời lịch lúc 12h sang 13h', 'Dời lịch lúc 12h sang 13h', 'Hãy rời cuộc họp lúc 12 giờ sang 13 giờ']) {
@@ -48,6 +98,12 @@ test('date-only move preserves the original hour', () => {
   const edited = edit('Dời lịch họp với khách hàng sang ngày mai');
   assert.equal(new Date(edited.meetingTime).getHours(), 10);
   assert.equal(new Date(edited.meetingTime).getDate(), 17);
+});
+
+test('voice edit can move a meeting into an explicitly spoken future year', () => {
+  const edited = edit('Dời lịch họp với khách hàng sang ngày 20 tháng 10 năm 2030');
+  assert.equal(new Date(edited.meetingTime).getFullYear(), 2030);
+  assert.equal(new Date(edited.meetingTime).getDate(), 20);
 });
 test('relative shift uses old meeting time, while after uses now', () => {
   assert.equal(new Date(edit('Dời lịch họp với khách hàng thêm 30 phút').meetingTime).getHours(), 10);

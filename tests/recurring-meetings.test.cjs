@@ -50,12 +50,46 @@ test('a month without a stated year rolls into the next year when needed', () =>
   assert.equal(result.recurrence.until.getFullYear(), 2027);
 });
 
+test('a recurring request in a future year starts in that year, while an end year does not move its start', () => {
+  const now = new Date(2026, 9, 20, 8);
+  const future = parse('đặt lịch họp thứ 4 hàng tuần năm 2030', now);
+  assert.equal(future.datetime.getFullYear(), 2030);
+  assert.equal(future.datetime.getDay(), 3);
+  assert.equal(future.recurrence.until.getFullYear(), 2031);
+  const ending = parse('đặt lịch họp thứ 4 hàng tuần đến hết tháng 11 năm 2030', now);
+  assert.deepEqual(parts(ending.datetime), [2026, 10, 21, 9, 0]);
+  assert.equal(ending.recurrence.until.getFullYear(), 2030);
+});
+
 test('workday schedules skip Saturday and Sunday', () => {
   const result = parse('17h50 từ thứ 2 đến thứ 6 chấm công về', new Date(2026, 9, 23, 18));
   const dates = expand(result.datetime, result.recurrence);
   assert.equal(result.title, 'Chấm công về');
   assert.deepEqual(parts(dates[0]), [2026, 10, 26, 17, 50]);
   assert.ok(dates.every(date => date.getDay() >= 1 && date.getDay() <= 5));
+});
+
+test('daily work schedule excluding Sunday keeps Monday through Saturday and a clean title', () => {
+  const result = parse('đặt lịch đi làm hàng ngày trừ chủ nhật', new Date(2026, 9, 24, 8));
+  const dates = expand(result.datetime, result.recurrence);
+  assert.equal(result.title, 'Đi làm');
+  assert.deepEqual(Array.from(result.recurrence.weekdays), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(parts(dates[0]), [2026, 10, 24, 9, 0]);
+  assert.deepEqual(parts(dates[1]), [2026, 10, 26, 9, 0]);
+  assert.ok(dates.every(date => date.getDay() !== 0));
+});
+
+test('daily exclusions accept a Sunday speech typo and more than one excluded day', () => {
+  const now = new Date(2026, 9, 24, 10);
+  const typo = parse('đặt lịch đi làm hàng ngày trừ chủ nhất', now);
+  const weekendSchedule = parseSchedule('đặt lịch 8h đi làm mỗi ngày trừ thứ 7 và chủ nhật', now);
+  assert.equal(weekendSchedule.length, 1);
+  const weekend = weekendSchedule[0];
+  assert.equal(typo.title, 'Đi làm');
+  assert.deepEqual(Array.from(typo.recurrence.weekdays), [1, 2, 3, 4, 5, 6]);
+  assert.equal(weekend.title, 'Đi làm');
+  assert.deepEqual(Array.from(weekend.recurrence.weekdays), [1, 2, 3, 4, 5]);
+  assert.ok(expand(weekend.datetime, weekend.recurrence).every(date => date.getDay() >= 1 && date.getDay() <= 5));
 });
 
 test('several weekdays in one weekly rule retain one title and one clock time', () => {
@@ -73,6 +107,52 @@ test('monthly schedules skip months missing the requested day', () => {
   assert.equal(result.title, 'Thanh toán');
   assert.deepEqual(parts(dates[0]), [2027, 1, 31, 9, 0]);
   assert.deepEqual(parts(dates[1]), [2027, 3, 31, 9, 0]);
+});
+
+test('monthly day 31 spoken in February starts at the next valid month', () => {
+  const result = parse('ngày 31 hằng tháng thanh toán', new Date(2027, 1, 15, 9));
+  assert.equal(result.validationError, undefined);
+  assert.deepEqual(parts(result.datetime), [2027, 3, 31, 9, 0]);
+});
+
+test('a future recurring start date does not leak a preposition into its title', () => {
+  const result = parse('đặt lịch 10h từ ngày 1 tháng 11 năm 2030 hàng ngày đến hết tháng 11 chấm công', new Date(2026, 9, 20, 8));
+  assert.equal(result.title, 'Chấm công');
+  assert.deepEqual(parts(result.datetime), [2030, 11, 1, 10, 0]);
+});
+
+test('an explicit start day without a year begins recurrence on that day', () => {
+  const now = new Date(2026, 9, 20, 8);
+  const calendar = parse('đặt lịch 9h từ ngày 20 tháng 11 hàng ngày đi làm đến hết tháng 11', now);
+  const relative = parse('đặt lịch 9h từ ngày mai hàng ngày đi làm', now);
+  assert.deepEqual(parts(calendar.datetime), [2026, 11, 20, 9, 0]);
+  assert.deepEqual(parts(relative.datetime), [2026, 10, 21, 9, 0]);
+  const nextYear = parse('đặt lịch 9h từ ngày 1 tháng 9 hàng ngày đi làm', now);
+  assert.deepEqual(parts(nextYear.datetime), [2027, 9, 1, 9, 0]);
+});
+
+test('weekly and monthly rules inherit the weekday or day from their spoken start date', () => {
+  const now = new Date(2026, 9, 15, 8);
+  const weekly = parse('đặt lịch 9h từ ngày 20 tháng 11 hàng tuần họp', now);
+  const monthly = parse('đặt lịch 9h từ ngày 20 tháng 11 hàng tháng thanh toán', now);
+  assert.deepEqual(parts(weekly.datetime), [2026, 11, 20, 9, 0]);
+  assert.deepEqual(Array.from(weekly.recurrence.weekdays), [5]);
+  assert.deepEqual(parts(monthly.datetime), [2026, 11, 20, 9, 0]);
+  assert.equal(monthly.recurrence.monthDay, 20);
+});
+
+test('weekly recurrence explicitly starting next week does not create this week', () => {
+  const result = parse('đặt lịch 9h thứ 4 tuần sau hàng tuần họp', new Date(2026, 9, 20, 8));
+  assert.deepEqual(parts(result.datetime), [2026, 10, 28, 9, 0]);
+});
+
+test('unsupported repetition and exclusions fail instead of silently making a different schedule', () => {
+  const now = new Date(2026, 9, 20, 8);
+  for (const wording of [
+    '9h họp hàng năm', '9h họp mỗi 2 ngày', '9h họp cách ngày',
+    '9h họp hàng ngày trừ ngày lễ', '9h họp hàng ngày đến hết năm 2030',
+    '9h họp hàng ngày trong 2 tuần', '9h họp hàng ngày trừ thứ 2 thứ 4',
+  ]) assert.ok(parse(wording, now).validationError, wording);
 });
 
 test('every two weeks repeats on alternating Wednesdays', () => {

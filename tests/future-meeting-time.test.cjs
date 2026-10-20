@@ -40,3 +40,16 @@ test('storage rejects moving a meeting into the past but allows edits to histori
   await StorageService.updateMeeting({ ...original, title: 'Updated' });
   assert.equal(current.title, 'Updated');
 });
+
+test('voice deletion refuses to remove a meeting changed since its preview', async () => {
+  const selected = { id: 'one', title: 'Họp', meetingTime: new Date(Date.now() + 3_600_000).toISOString() };
+  const changed = { ...selected, title: 'Họp đã đổi tên' };
+  let deleted = false;
+  const database = {
+    getMeetings: async () => [changed],
+    deleteMeeting: async () => { deleted = true; return []; },
+  };
+  const { StorageService } = createLoader({ './database': { DatabaseService: database } })('src/services/storage.ts');
+  await assert.rejects(StorageService.deleteMeeting(selected.id, selected), /đã thay đổi/);
+  assert.equal(deleted, false);
+});

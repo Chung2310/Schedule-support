@@ -8,6 +8,19 @@ const verb = /^(?:thay đổi|cập nhật|điều chỉnh|đổi lại|sửa l�
 const timePattern = /(?<![\p{L}\p{N}])(\d{1,3})\s*(?:giờ|h|:)\s*(?:(kém)\s*)?(\d{1,3})?\s*(?:phút|p)?(?![\p{L}\p{N}])/gu;
 const tidy = (text: string) => text.replace(/^[\s,.;:!?]+|[\s,.;:!?]+$/g, '').trim();
 
+function matchesSpokenDate(selector: string, parsed: ReturnType<typeof parseVietnameseVoiceMeeting>, date: Date): boolean {
+  if (parsed.confidence.dateConfidence !== 'EXPLICIT') return true;
+  const expected = parsed.datetime;
+  if (parsed.extractedDateStr.startsWith('Năm ')) return date.getFullYear() === expected.getFullYear();
+  if (parsed.extractedDateStr.startsWith('Tháng ')) {
+    return date.getFullYear() === expected.getFullYear() && date.getMonth() === expected.getMonth();
+  }
+  const hasDayMonth = /(?:ngày\s*)?\d{1,2}\s*(?:tháng|[./-])\s*\d{1,2}/u.test(selector);
+  const hasYear = /(?<!\p{L})năm\s+\d{4}(?!\d)|\d{4}[.-]\d{1,2}[.-]\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{4}/u.test(selector);
+  return (!hasYear && hasDayMonth || date.getFullYear() === expected.getFullYear())
+    && date.getMonth() === expected.getMonth() && date.getDate() === expected.getDate();
+}
+
 // Match a complete duration so an unrecognized second instruction is not lost.
 function durationMinutes(text: string): number | null {
   const value = tidy(text).replace(/\s+và\s+/g, ' ');
@@ -27,8 +40,9 @@ function validateTime(text: string) {
 }
 
 function validateDate(text: string, date: Date) {
-  if (/\d{1,2}[/-]\d{1,2}[/-]\d{4}|năm\s+\d{4}/u.test(text)) {
-    throw new Error('Chưa hỗ trợ đổi năm bằng giọng nói. Bạn có thể sửa ngày bằng bàn phím.');
+  const year = text.match(/(?<!\p{L})năm\s+(\d{4})(?!\d)|\d{1,2}[./-]\d{1,2}[./-](\d{4})(?!\d)/u);
+  if (year && date.getFullYear() !== Number(year[1] ?? year[2])) {
+    throw new Error('Năm không hợp lệ. Vui lòng kiểm tra lại năm được nói.');
   }
   const match = text.match(/(?:ngày\s*)?(\d{1,2})\s*(?:tháng|\/|-)\s*(\d{1,2})/u);
   if (match && (date.getDate() !== Number(match[1]) || date.getMonth() + 1 !== Number(match[2]))) {
@@ -40,6 +54,38 @@ function validateDate(text: string, date: Date) {
   }
 }
 
+export function voiceDeleteCommand(input: string, meetings: Meeting[], now: Date) {
+  let text = normalizeVietnameseVoiceText(input).toLowerCase().trim();
+  text = text.replace(/^(?:(?:tôi|mình|em)\s+(?:muốn|cần|nhờ bạn)|bạn có thể|làm ơn|vui lòng|giúp tôi|giúp mình|hãy)\s+/u, '')
+    .replace(/\s+(?:giúp tôi|giúp mình|cho tôi|cho mình|nhé|nhá|ạ)[.!?]*$/u, '');
+  text = tidy(text);
+  if (/^(?:thôi\s+)?(?:(?:tôi|mình)\s+)?(?:đừng(?:\s+có)?|không(?:\s+muốn|\s+cần)?|chưa)\s+(?:xóa|xoá|hủy|huỷ|bỏ)(?!\p{L})/u.test(text)) {
+    return { text, candidates: [] as Meeting[], error: 'Yêu cầu có phủ định. Chưa xóa lịch nào.' };
+  }
+  const action = text.match(/^(?:xóa|xoá|hủy|huỷ|bỏ)(?!\p{L})(?:\s+bỏ)?(?:\s+(?:lịch(?:\s+hẹn)?|cuộc\s+họp|cuộc\s+hẹn))?\s*(.*)$/u);
+  if (!action) return null;
+  const selector = tidy(action[1]).replace(/^(?:(?:của|cho|giúp)\s+(?:tôi|mình))\s+/u, '');
+  if (!selector || /(?:tất\s+cả|toàn\s+bộ|mọi\s+lịch|(?<!khách\s)hàng\s+ngày|mỗi\s+ngày|hàng\s+tuần)/u.test(selector)) {
+    return { text, candidates: [] as Meeting[], error: 'Hãy nói rõ một lịch cần xóa, kèm ngày hoặc giờ nếu có nhiều lịch cùng tên.' };
+  }
+  const parsed = parseVietnameseVoiceMeeting(selector, now);
+  try {
+    if (parsed.validationError) throw new Error(parsed.validationError);
+    validateTime(selector); validateDate(selector, parsed.datetime);
+  }
+  catch (issue) { return { text, candidates: [] as Meeting[], error: (issue as Error).message }; }
+  const query = parsed.title === 'Cuộc họp quan trọng' ? '' : tidy(parsed.title.toLowerCase())
+    .replace(/^(?:lịch\s*(?:hẹn\s*)?)?(?:cuộc\s*)?(?:họp\s*)?/u, '').trim();
+  const candidates = meetings.filter(meeting => {
+    const date = new Date(meeting.meetingTime);
+    const title = normalizeVietnameseVoiceText(meeting.title).toLowerCase();
+    return (!query || title.includes(query))
+      && (parsed.confidence.timeConfidence !== 'HIGH' || (date.getHours() === parsed.datetime.getHours() && date.getMinutes() === parsed.datetime.getMinutes()))
+      && matchesSpokenDate(selector, parsed, date);
+  }).sort((a, b) => a.meetingTime.localeCompare(b.meetingTime));
+  return { text, candidates, error: null as string | null };
+}
+
 export function voiceEditCommand(input: string, meetings: Meeting[], now: Date) {
   let text = normalizeVietnameseVoiceText(input).toLowerCase();
   text = text.replace(/^(?:(?:tôi|mình|em)\s+(?:muốn|cần|nhờ bạn)|bạn có thể|làm ơn|vui lòng|giúp tôi|giúp mình|hãy)\s+/u, '')
@@ -47,10 +93,10 @@ export function voiceEditCommand(input: string, meetings: Meeting[], now: Date) 
     .replace(/\s+(?:giúp tôi|giúp mình|cho tôi|cho mình|nhé|nhá|ạ)[.!?]*$/u, '');
   text = tidy(text).replace(/^rời(?=\s+(?:lịch|cuộc họp|họp)(?!\p{L}))/u, 'dời');
   const reminderFirst = /^(?:báo trước|nhắc trước|nhắc lại)(?!\p{L})/u.test(text);
-  const negative = /^(?:(?:tôi|mình)\s+)?(?:đừng|không|không cần|không muốn|đừng có)\s+(?:sửa|đổi|dời|rời|chuyển|lùi|hoãn)/u.test(text);
+  const negative = /^(?:thôi\s+)?(?:(?:tôi|mình)\s+)?(?:đừng|không|chưa|không cần|không muốn|đừng có)\s+(?:sửa|đổi|dời|rời|chuyển|lùi|hoãn)/u.test(text);
   if (!verb.test(text) && !reminderFirst && !negative) return null;
   let error: string | null = negative ? 'Yêu cầu có phủ định. Chưa áp dụng thay đổi nào.' : null;
-  if (/tất cả|toàn bộ|các cuộc họp|các lịch|mỗi ngày|hàng ngày|hàng tuần/u.test(text)) {
+  if (/tất cả|toàn bộ|các cuộc họp|các lịch|mỗi ngày|(?<!khách\s)hàng ngày|hàng tuần/u.test(text)) {
     error = 'Hiện chỉ sửa từng cuộc họp. Vui lòng chọn một lịch cụ thể.';
   }
   const rename = /^(?:đổi|sửa|thay đổi|cập nhật)(?: lại)?\s+(?:tên|nội dung)(?!\p{L})/u.test(text);
@@ -88,7 +134,10 @@ export function voiceEditCommand(input: string, meetings: Meeting[], now: Date) 
     }
   }
   const old = parseVietnameseVoiceMeeting(source, now);
-  try { validateTime(source); validateDate(source, old.datetime); } catch (issue) { error = (issue as Error).message; }
+  try {
+    if (old.validationError) throw new Error(old.validationError);
+    validateTime(source); validateDate(source, old.datetime);
+  } catch (issue) { error = (issue as Error).message; }
   const query = tidy(old.title.toLowerCase())
     .replace(/^(?:lịch\s*(?:hẹn\s*)?)?(?:cuộc\s*)?(?:họp\s*)?/u, '')
     .replace(/^(?:của\s+)?(?:cuộc\s+)?họp\s*/u, '').trim();
@@ -97,7 +146,7 @@ export function voiceEditCommand(input: string, meetings: Meeting[], now: Date) 
     const title = normalizeVietnameseVoiceText(meeting.title).toLowerCase();
     return (!query || title.includes(query))
       && (old.confidence.timeConfidence !== 'HIGH' || (date.getHours() === old.datetime.getHours() && date.getMinutes() === old.datetime.getMinutes()))
-      && (old.confidence.dateConfidence !== 'EXPLICIT' || (date.getFullYear() === old.datetime.getFullYear() && date.getMonth() === old.datetime.getMonth() && date.getDate() === old.datetime.getDate()));
+      && matchesSpokenDate(source, old, date);
   }).sort((a, b) => a.meetingTime.localeCompare(b.meetingTime));
   return { text, operation, replacement, candidates, rename, reminders, error };
 }
@@ -135,6 +184,7 @@ export function voiceEditFields(command: NonNullable<ReturnType<typeof voiceEdit
     else {
       validateTime(replacement);
       const parsed = parseVietnameseVoiceMeeting(replacement, now, originalDate, daypartTimes);
+      if (parsed.validationError) throw new Error(parsed.validationError);
       validateDate(replacement, parsed.datetime);
       const residual = parsed.title.toLowerCase().replace(/cuộc họp quan trọng/g, '').replace(/^\d{1,2}$/u, '').trim();
       if (residual || (parsed.confidence.timeConfidence !== 'HIGH' && !parsed.defaultTimePeriod && parsed.confidence.dateConfidence !== 'EXPLICIT')) {

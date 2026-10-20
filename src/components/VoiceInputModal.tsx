@@ -19,7 +19,7 @@ import { STTService } from '../services/sttService';
 import { parseVietnameseVoiceSchedule } from '../services/nlpParser';
 import { AppSettings } from '../types/settings';
 import type { Meeting } from '../types/meeting';
-import { voiceEditCommand, voiceEditFields } from '../services/voiceMeetingCommand';
+import { voiceDeleteCommand, voiceEditCommand, voiceEditFields } from '../services/voiceMeetingCommand';
 import { applyMeetingEdit, type MeetingEditFields } from '../utils/meetingEdit';
 import { findMeetingTimeConflict, meetingConflictMessage, meetingMinute } from '../utils/meetingConflict';
 import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
@@ -48,6 +48,7 @@ interface VoiceInputModalProps {
   settings: AppSettings;
   meetings: Meeting[];
   onEditMeeting: (fields: MeetingEditFields, meeting: Meeting) => Promise<void>;
+  onDeleteMeeting: (meeting: Meeting) => Promise<void>;
 }
 
 export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
@@ -60,6 +61,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   settings,
   meetings,
   onEditMeeting,
+  onDeleteMeeting,
 }) => {
   const [transcript, setTranscript] = useState(initialText);
   const [isListening, setIsListening] = useState(false);
@@ -71,6 +73,9 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const savingRef = useRef(false);
   const currentMinute = useCurrentMinute();
   const commandNow = useMemo(() => { void transcript; return new Date(); }, [transcript]);
+  const deleteCommand = useMemo(() => voiceDeleteCommand(transcript, meetings, commandNow), [transcript, meetings, commandNow]);
+  const deleteTarget = deleteCommand?.candidates.length === 1 ? deleteCommand.candidates[0]
+    : chosenMeeting?.transcript === transcript ? deleteCommand?.candidates.find(m => m.id === chosenMeeting.id) : undefined;
   const editCommand = useMemo(() => voiceEditCommand(transcript, meetings, commandNow), [transcript, meetings, commandNow]);
   const editTarget = editCommand?.candidates.length === 1 ? editCommand.candidates[0]
     : chosenMeeting?.transcript === transcript ? editCommand?.candidates.find(m => m.id === chosenMeeting.id) : undefined;
@@ -132,10 +137,11 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   // Bộ phân tích ngôn ngữ tự nhiên chạy trực tiếp từ lời nói người dùng
   const parsedSchedule = useMemo(() => {
-    if (!transcript.trim()) return [];
+    if (!transcript.trim() || deleteCommand) return [];
     return parseVietnameseVoiceSchedule(transcript.trim(), new Date(), selectedDate, settings);
-  }, [transcript, selectedDate, settings]);
+  }, [transcript, selectedDate, settings, deleteCommand]);
   const parsed = parsedSchedule[0] ?? null;
+  const recognitionError = editCommand ? undefined : parsedSchedule.find(item => item.validationError)?.validationError;
 
   // Thời gian cuộc họp thực tế
   const effectiveMeetingDate = useMemo(() => {
@@ -173,12 +179,12 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     : parsed?.recurrence && (!recurrenceDates.length || recurrenceDates.some(date => !isFutureMeetingTime(date, currentMinute)))
       ? 'Khoảng lặp lại không có ngày hẹn sắp tới. Hãy sửa ngày kết thúc hoặc giờ hẹn.'
       : null;
-  const pastError = !editCommand && !bulkItems.length && !parsed?.recurrence && transcript.trim()
+  const pastError = !editCommand && !deleteCommand && !bulkItems.length && !parsed?.recurrence && transcript.trim()
     && !isFutureMeetingTime(effectiveMeetingDate, currentMinute)
     ? new PastMeetingTimeError().message : null;
 
   const timeConflict = useMemo(() => {
-    if (!transcript.trim() || saving) return undefined;
+    if (!transcript.trim() || saving || deleteCommand) return undefined;
     if (editCommand) {
       if (!editPreview?.meeting || !editTarget ||
           meetingMinute(editPreview.meeting.meetingTime) === meetingMinute(editTarget.meetingTime)) return undefined;
@@ -200,7 +206,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     }
     if (!Number.isFinite(effectiveMeetingDate.getTime())) return undefined;
     return findMeetingTimeConflict(meetings, effectiveMeetingDate.toISOString());
-  }, [transcript, saving, editCommand, editPreview, editTarget, meetings, effectiveMeetingDate, parsed, recurrenceDates, bulkItems]);
+  }, [transcript, saving, deleteCommand, editCommand, editPreview, editTarget, meetings, effectiveMeetingDate, parsed, recurrenceDates, bulkItems]);
 
   const effectiveTitle = useMemo(() => {
     if (parsed && parsed.title) return parsed.title;
@@ -297,7 +303,18 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   // Xác nhận lưu lịch
   const handleConfirm = async () => {
-    if (!transcript.trim() || isStarting || isListening || isFinishing || savingRef.current || timeConflict || recurrenceError || bulkError || pastError) return;
+    if (!transcript.trim() || isStarting || isListening || isFinishing || savingRef.current) return;
+    if (deleteCommand) {
+      if (deleteCommand.error || !deleteTarget) return;
+      savingRef.current = true;
+      setSaving(true);
+      setErrorMessage(null);
+      try { await onDeleteMeeting(deleteTarget); }
+      catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Chưa xóa được lịch hẹn.'); }
+      finally { savingRef.current = false; setSaving(false); }
+      return;
+    }
+    if (recognitionError || timeConflict || recurrenceError || bulkError || pastError) return;
     if (editCommand) {
       if (!editPreview?.fields || !editTarget) return;
       savingRef.current = true;
@@ -353,7 +370,9 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   const hasContent = transcript.trim().length > 0;
   const speechBusy = isStarting || isListening || isFinishing;
-  const canConfirm = hasContent && !speechBusy && !saving && !timeConflict && !recurrenceError && !bulkError && !pastError && (!editCommand || !!editPreview?.meeting);
+  const canConfirm = hasContent && !speechBusy && !saving && (deleteCommand
+    ? !deleteCommand.error && !!deleteTarget
+    : !recognitionError && !timeConflict && !recurrenceError && !bulkError && !pastError && (!editCommand || !!editPreview?.meeting));
 
   return (
     <Modal visible={visible} animationType="slide" onShow={handleModalShow} onRequestClose={handleClose}>
@@ -369,7 +388,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
               {/* Tiêu đề & Nút đóng */}
               <View style={styles.headerRow}>
-                <Text style={styles.headerTitle}>{editCommand ? 'Sửa Lịch Hẹn' : 'Thêm Lịch Hẹn'}</Text>
+                <Text style={styles.headerTitle}>{deleteCommand ? 'Xóa Lịch Hẹn' : editCommand ? 'Sửa Lịch Hẹn' : 'Thêm Lịch Hẹn'}</Text>
                 <TouchableOpacity
                   onPress={handleClose}
                   style={styles.closeBtn}
@@ -452,7 +471,22 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               </View>
 
               {/* Thông tin bóc tách được (Hiện phẳng, tối giản) */}
-              {!speechBusy && editCommand && hasContent ? (
+              {!speechBusy && deleteCommand && hasContent ? (
+                <View style={styles.parsedInfoCard}>
+                  {deleteCommand.error ? <Text style={styles.errorText}>{deleteCommand.error}</Text>
+                    : !deleteCommand.candidates.length ? <Text style={styles.errorText}>Không tìm thấy lịch phù hợp. Hãy nói thêm tên, ngày hoặc giờ.</Text> : null}
+                  {deleteCommand.candidates.length > 1 ? <Text style={styles.infoLabel}>Chọn đúng một lịch cần xóa:</Text> : null}
+                  {deleteCommand.candidates.map(meeting => (
+                    <TouchableOpacity key={meeting.id} disabled={speechBusy || saving}
+                      accessibilityRole="button" accessibilityState={{ selected: deleteTarget?.id === meeting.id }}
+                      style={{ paddingVertical: 12 }} onPress={() => setChosenMeeting({ transcript, id: meeting.id })}>
+                      <Text style={styles.titleBoldText}>{deleteTarget?.id === meeting.id ? '✓ ' : ''}{meeting.title}</Text>
+                      <Text style={styles.dateSubText}>{new Date(meeting.meetingTime).toLocaleString('vi-VN')}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {deleteTarget ? <Text style={styles.errorText}>Sẽ xóa lịch này và các thông báo nhắc của nó.</Text> : null}
+                </View>
+              ) : !speechBusy && editCommand && hasContent ? (
                 <View style={styles.parsedInfoCard}>
                   {editCommand.error ? <Text style={styles.errorText}>{editCommand.error}</Text> : !editCommand.candidates.length ? <Text style={styles.errorText}>Không tìm thấy cuộc họp phù hợp. Hãy nói rõ tên hoặc giờ họp cần sửa.</Text> : null}
                   {editCommand.candidates.length > 1 ? <Text style={styles.infoLabel}>Chọn lịch:</Text> : null}
@@ -531,12 +565,14 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               {recurrenceError && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{recurrenceError}</Text> : null}
               {bulkError && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{bulkError}</Text> : null}
               {pastError && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{pastError}</Text> : null}
+              {recognitionError && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{recognitionError}</Text> : null}
               <BrandConfirmButton
                 disabled={!canConfirm}
                 onPress={handleConfirm}
-                label={saving ? 'Đang chuẩn bị giọng đọc…' : editCommand ? 'Lưu thay đổi' : bulkItems.length > 1 ? `Tạo ${bulkItems.length} lịch` : recurrenceDates.length ? `Tạo ${recurrenceDates.length} lịch` : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
+                destructive={!!deleteCommand}
+                label={saving ? deleteCommand ? 'Đang xóa lịch…' : 'Đang chuẩn bị giọng đọc…' : deleteCommand ? 'Xóa lịch đã chọn' : editCommand ? 'Lưu thay đổi' : bulkItems.length > 1 ? `Tạo ${bulkItems.length} lịch` : recurrenceDates.length ? `Tạo ${recurrenceDates.length} lịch` : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
               />
-              {saving ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để bật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
+              {saving && !deleteCommand ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để bật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
               </ScrollView>
             </SafeAreaView>
           </KeyboardAvoidingView>

@@ -10,8 +10,10 @@ export interface MeetingRecurrence {
 export function meetingRecurrenceLabel(recurrence: MeetingRecurrence): string {
   if (recurrence.frequency === 'monthly') return `Ngày ${recurrence.monthDay} hằng tháng`;
   if (recurrence.frequency === 'daily') {
-    return recurrence.weekdays?.length === 5 && recurrence.weekdays.every((day, index) => day === index + 1)
-      ? 'Thứ 2 đến thứ 6' : 'Hằng ngày';
+    const weekdays = recurrence.weekdays;
+    if (weekdays?.length === 5 && weekdays.every((day, index) => day === index + 1)) return 'Thứ 2 đến thứ 6';
+    if (weekdays?.length === 6 && weekdays.every((day, index) => day === index + 1)) return 'Thứ 2 đến thứ 7';
+    return weekdays?.length ? `Hằng ngày · ${weekdays.map(day => day === 0 ? 'CN' : `thứ ${day + 1}`).join(', ')}` : 'Hằng ngày';
   }
   const days = (recurrence.weekdays ?? []).map(day => day === 0 ? 'CN' : `thứ ${day + 1}`).join(', ');
   return `${recurrence.intervalWeeks && recurrence.intervalWeeks > 1 ? `Cứ ${recurrence.intervalWeeks} tuần` : 'Hằng tuần'}${days ? ` · ${days}` : ''}`;
@@ -40,7 +42,7 @@ export function expandMeetingRecurrence(first: Date, recurrence: MeetingRecurren
     day.getFullYear(), day.getMonth(), day.getDate() + 1, first.getHours(), first.getMinutes(), 0, 0,
   )) {
     const weekday = day.getDay();
-    if (recurrence.frequency === 'daily' && recurrence.weekdays?.length && !recurrence.weekdays.includes(weekday)) continue;
+    if (recurrence.frequency === 'daily' && recurrence.weekdays && !recurrence.weekdays.includes(weekday)) continue;
     if (recurrence.frequency === 'weekly') {
       if (!(recurrence.weekdays ?? [first.getDay()]).includes(weekday)) continue;
       const dayWeek = (Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()) / 86_400_000)
