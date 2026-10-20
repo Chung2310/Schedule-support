@@ -367,6 +367,15 @@ function AppContent() {
     await AlarmManager.syncNotifications(settings);
   };
 
+  const handleDeleteVoiceMeeting = async (meeting: Meeting) => {
+    const updated = await StorageService.deleteMeeting(meeting.id, meeting);
+    setMeetings(updated);
+    setActiveAlarmMeeting(previous => previous?.id === meeting.id ? null : previous);
+    await AlarmManager.cancelAlarm(meeting.id).catch(error => console.warn('Could not cancel deleted meeting reminders:', error));
+    await AlarmManager.syncNotifications(settings).catch(error => console.warn('Could not refresh reminders after deletion:', error));
+    setIsVoiceModalOpen(false);
+  };
+
   // Lưu cài đặt
   const handleOpenSettings = () => {
     if (activeTab !== 'settings') settingsReturnTab.current = activeTab;
@@ -528,6 +537,7 @@ function AppContent() {
         onSaveMeeting={handleSaveVoiceMeeting}
         meetings={meetings}
         onEditMeeting={handleSaveEditedMeeting}
+        onDeleteMeeting={handleDeleteVoiceMeeting}
       /> : null}
 
       {editingMeeting ? <EditMeetingModal
