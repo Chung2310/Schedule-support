@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { ParsedMeetingResult } from '../services/nlpParser';
 import { AppSettings } from '../types/settings';
+import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
 
 interface MeetingConfirmModalProps {
   visible: boolean;
@@ -118,7 +119,7 @@ const MeetingConfirmForm: React.FC<MeetingConfirmModalProps> = ({
           <View style={styles.metaRow}>
             <Ionicons name="notifications-outline" size={14} color="#64748B" />
             <Text style={styles.metaText}>
-              Báo trước {advanceNotice}p • Nhắc lại mỗi {repeatInterval}p
+              Báo trước {formatAdvanceNotice(advanceNotice)} • Nhắc lại mỗi {repeatInterval}p
             </Text>
           </View>
 

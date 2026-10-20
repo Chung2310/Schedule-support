@@ -6,6 +6,7 @@ import { SpeechService } from './speechService';
 import { StorageService } from './storage';
 import { isSameDay } from '../utils/dateUtils';
 import { buildReminderPlan } from '../utils/reminderPlan';
+import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
 import { MeetingVoice } from './meetingVoice';
 import { cleanReminderText } from '../utils/reminderText';
 
@@ -43,11 +44,13 @@ const VOICE_PREVIEW_ID = 'ceo_background_voice_preview';
 // Keep the spoken agenda comfortably below the native notification sound limit.
 const MAX_DAILY_BRIEFING_VOICE_LENGTH = 360;
 const DISMISS_ACTION = 'DISMISS_ACTION';
+const RESCHEDULE_ACTION = 'RESCHEDULE_ACTION';
 
 interface AlarmCallbacks {
   onAlarm: (meeting: Meeting) => void;
   onAcknowledged: (meeting: Meeting) => void;
   onNotificationOpen: (meeting: Meeting) => void;
+  onReschedule?: (meeting: Meeting) => void;
 }
 
 export function buildTodayScheduleBriefing(todayMeetings: Meeting[], date = new Date()) {
@@ -141,11 +144,18 @@ class AlarmManagerService {
     }
 
     await this.ensureNotificationChannel();
-    await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY_ID, [{
-      identifier: DISMISS_ACTION,
-      buttonTitle: 'Đã nhớ',
-      options: { opensAppToForeground: true, isDestructive: false },
-    }]);
+    await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY_ID, [
+      {
+        identifier: DISMISS_ACTION,
+        buttonTitle: 'Đã nhớ',
+        options: { opensAppToForeground: true, isDestructive: false },
+      },
+      {
+        identifier: RESCHEDULE_ACTION,
+        buttonTitle: 'Đặt lại lịch',
+        options: { opensAppToForeground: true, isDestructive: false },
+      },
+    ]);
 
     const permission = await Notifications.getPermissionsAsync();
     if (!permission.granted && permission.canAskAgain) {
@@ -175,6 +185,9 @@ class AlarmManagerService {
     try {
       if (response.actionIdentifier === DISMISS_ACTION) {
         await this.acknowledgeAndDismiss(meetingId);
+      } else if (response.actionIdentifier === RESCHEDULE_ACTION) {
+        const meeting = (await StorageService.getMeetings()).find((item) => item.id === meetingId);
+        if (meeting) this.callbacks?.onReschedule?.(meeting);
       } else if (response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
         const meeting = (await StorageService.getMeetings()).find((item) => item.id === meetingId);
         if (meeting) this.callbacks?.onNotificationOpen(meeting);
@@ -238,7 +251,7 @@ class AlarmManagerService {
 
       const now = new Date();
       // Keep the nearest requests on iOS and reserve one slot for the morning briefing.
-      const capacity = Platform.OS === 'ios' ? Math.max(0, 63 - (pending.length - owned.length)) : Infinity;
+      const capacity = Platform.OS === 'ios' ? Math.max(0, 63 - (pending.length - owned.length)) : 128;
       const plan = buildReminderPlan(meetings, settings, now.getTime()).slice(0, capacity);
       for (const reminder of plan) {
         const { meeting, repeatIndex } = reminder;
@@ -248,7 +261,7 @@ class AlarmManagerService {
           identifier: reminder.identifier,
           content: {
             title: `⏰ ${repeatIndex > 0 ? '[Nhắc lại] ' : ''}[${timeStr}] ${meeting.title}`,
-            subtitle: repeatIndex > 0 ? `Lần nhắc lại thứ ${repeatIndex}` : `Báo trước ${meeting.advanceNoticeMinutes} phút`,
+            subtitle: repeatIndex > 0 ? `Lần nhắc lại thứ ${repeatIndex}` : `Báo trước ${formatAdvanceNotice(meeting.advanceNoticeMinutes)}`,
             body: `${meeting.voiceText}\nChạm để xem lịch hoặc bấm “Đã nhớ” để dừng nhắc.`,
             categoryIdentifier: NOTIFICATION_CATEGORY_ID,
             data: { meetingId: meeting.id },
@@ -306,7 +319,7 @@ class AlarmManagerService {
           const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
           const content = {
             title: `⏰ ${reminder.repeatIndex > 0 ? '[Nhắc lại] ' : ''}[${time}] ${meeting.title}`,
-            subtitle: reminder.repeatIndex > 0 ? `Lần nhắc lại thứ ${reminder.repeatIndex}` : `Báo trước ${meeting.advanceNoticeMinutes} phút`,
+            subtitle: reminder.repeatIndex > 0 ? `Lần nhắc lại thứ ${reminder.repeatIndex}` : `Báo trước ${formatAdvanceNotice(meeting.advanceNoticeMinutes)}`,
             body: `${meeting.voiceText}\nChạm để xem lịch hoặc bấm “Đã nhớ” để dừng nhắc.`,
             categoryIdentifier: NOTIFICATION_CATEGORY_ID,
             data: { meetingId: meeting.id, voiceKey: voice.key },

@@ -23,6 +23,7 @@ try {
 
 let subscriptions: { remove: () => void }[] = [];
 let webRecognitionInstance: any = null;
+let webMeteringCleanup: (() => void) | null = null;
 let recognitionSession = 0;
 let activeNativeSession: number | null = null;
 let foregroundGuard: ReturnType<typeof createSpeechForegroundGuard> | null = null;
@@ -38,6 +39,43 @@ function clearSilenceTimeout() {
 function clearStartupTimeout() {
   if (startupTimeout) clearTimeout(startupTimeout);
   startupTimeout = undefined;
+}
+
+async function startWebMetering(isCurrent: () => boolean, onVolumeChange?: (volume: number) => void) {
+  if (!onVolumeChange || !navigator.mediaDevices?.getUserMedia || typeof AudioContext === 'undefined') return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!isCurrent() || finishing) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    const context = new AudioContext();
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+    const samples = new Uint8Array(analyser.fftSize);
+    const timer = setInterval(() => {
+      if (!isCurrent() || finishing) return;
+      analyser.getByteTimeDomainData(samples);
+      let energy = 0;
+      for (const sample of samples) {
+        const value = (sample - 128) / 128;
+        energy += value * value;
+      }
+      const rms = Math.sqrt(energy / samples.length);
+      onVolumeChange(Math.min(10, rms * 80));
+    }, 100);
+    webMeteringCleanup = () => {
+      clearInterval(timer);
+      source.disconnect();
+      stream.getTracks().forEach(track => track.stop());
+      void context.close();
+      webMeteringCleanup = null;
+    };
+  } catch {
+    // Speech recognition can still work when separate web audio metering is unavailable.
+  }
 }
 
 export const STTService = {
@@ -240,6 +278,7 @@ export const STTService = {
           recognition.onstart = () => {
             if (!isCurrent()) return;
             resetSilenceTimeout();
+            void startWebMetering(isCurrent, callbacks.onVolumeChange);
             if (callbacks.onStart) callbacks.onStart();
           };
           recognition.onresult = (event: any) => {
@@ -252,6 +291,7 @@ export const STTService = {
           };
           recognition.onerror = (err: any) => {
             if (!isCurrent()) return;
+            webMeteringCleanup?.();
             finishing = true;
             clearSilenceTimeout();
             receivedError = true;
@@ -259,6 +299,7 @@ export const STTService = {
           };
           recognition.onend = () => {
             if (!isCurrent()) return;
+            webMeteringCleanup?.();
             webRecognitionInstance = null;
             finishing = true;
             clearSilenceTimeout();
@@ -291,6 +332,7 @@ export const STTService = {
     if (finishing) return;
     finishing = true;
     clearSilenceTimeout();
+    webMeteringCleanup?.();
     if (Platform.OS === 'web') {
       webRecognitionInstance?.stop();
     } else {
@@ -303,6 +345,7 @@ export const STTService = {
     finishing = true;
     clearSilenceTimeout();
     clearStartupTimeout();
+    webMeteringCleanup?.();
     foregroundGuard?.dispose();
     foregroundGuard = null;
     const hadNativeSession = activeNativeSession !== null;

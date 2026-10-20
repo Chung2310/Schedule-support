@@ -28,6 +28,15 @@ class DatabaseServiceWeb {
     return next;
   }
 
+  async addMeetings(meetings: Meeting[]): Promise<Meeting[]> {
+    const list = await this.getMeetings();
+    const next = [...list, ...meetings].sort(
+      (a, b) => new Date(a.meetingTime).getTime() - new Date(b.meetingTime).getTime()
+    );
+    await AsyncStorage.setItem(WEB_MEETINGS_KEY, JSON.stringify(next));
+    return next;
+  }
+
   async updateMeeting(meeting: Meeting): Promise<Meeting[]> {
     const list = await this.getMeetings();
     const next = list.map((m) => (m.id === meeting.id ? meeting : m));

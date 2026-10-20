@@ -11,6 +11,7 @@ import {
 import { Meeting } from '../types/meeting';
 import { isSameDay, formatDateKey } from '../utils/dateUtils';
 import { getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
+import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
 import { useCurrentMinute } from '../hooks/useLocalDay';
 import { useCancelMeetingDialog } from './AppDialog';
 import { ScheduleIcon } from './ScheduleIcons';
@@ -156,7 +157,7 @@ export const DayHourlyTimeline: React.FC<DayHourlyTimelineProps> = ({
                           <View style={[styles.statusStripe, { backgroundColor: getCalendarAccentColor(calendarColor) }]} />
                           <View style={styles.timeColumn}>
                             <Text style={styles.timeText}>{exactTime}</Text>
-                            <Text style={styles.leadText}>-{m.advanceNoticeMinutes}p</Text>
+                            <Text style={styles.leadText}>-{formatAdvanceNotice(m.advanceNoticeMinutes, true)}</Text>
                           </View>
                           <View style={styles.meetingContent}>
                             <Text style={styles.cardTitle} numberOfLines={2}>{m.title}</Text>

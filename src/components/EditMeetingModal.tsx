@@ -8,6 +8,7 @@ import { applyMeetingEdit, meetingEditFields, MeetingEditFields } from '../utils
 
 interface Props {
   meeting: Meeting;
+  suggestedTime?: Date;
   onClose: () => void;
   onSave: (fields: MeetingEditFields) => Promise<void>;
 }
@@ -23,9 +24,13 @@ function formatTime(date: Date): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-export function EditMeetingModal({ meeting, onClose, onSave }: Props) {
-  const [fields, setFields] = useState(() => meetingEditFields(meeting));
-  const [selectedDate, setSelectedDate] = useState(() => new Date(meeting.meetingTime));
+export function EditMeetingModal({ meeting, suggestedTime, onClose, onSave }: Props) {
+  const [fields, setFields] = useState(() => suggestedTime ? {
+    ...meetingEditFields(meeting),
+    date: formatDate(suggestedTime),
+    time: formatTime(suggestedTime),
+  } : meetingEditFields(meeting));
+  const [selectedDate, setSelectedDate] = useState(() => suggestedTime ?? new Date(meeting.meetingTime));
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -66,7 +71,7 @@ export function EditMeetingModal({ meeting, onClose, onSave }: Props) {
         <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <SafeAreaView style={styles.sheet} edges={['bottom']}>
           <View style={styles.header}>
-            <Text style={styles.heading}>Sửa cuộc họp</Text>
+            <Text style={styles.heading}>{suggestedTime ? 'Đặt lại lịch hẹn' : 'Sửa cuộc họp'}</Text>
             <TouchableOpacity disabled={saving} onPress={onClose} accessibilityLabel="Đóng" style={styles.close}>
               <Ionicons name="close" size={22} color="#64748B" />
             </TouchableOpacity>
@@ -109,7 +114,7 @@ export function EditMeetingModal({ meeting, onClose, onSave }: Props) {
             </View>
             {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
             <TouchableOpacity accessibilityRole="button" style={[styles.save, saving && styles.disabled]} disabled={saving} onPress={save}>
-              <Text style={styles.saveText}>{saving ? 'Đang chuẩn bị giọng đọc…' : 'Lưu thay đổi'}</Text>
+              <Text style={styles.saveText}>{saving ? 'Đang chuẩn bị giọng đọc…' : suggestedTime ? 'Lưu lịch mới' : 'Lưu thay đổi'}</Text>
             </TouchableOpacity>
             {saving ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để cập nhật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
           </ScrollView>

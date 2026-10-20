@@ -1,4 +1,5 @@
 import type { Meeting } from '../types/meeting';
+import { assertFutureMeetingTime } from './futureMeetingTime';
 
 export interface MeetingEditFields {
   title: string;
@@ -6,6 +7,16 @@ export interface MeetingEditFields {
   time: string;
   advance: string;
   repeat: string;
+}
+
+/** Start a reschedule draft on a future minute, different from the old slot. */
+export function suggestRescheduleTime(meeting: Meeting, now = new Date()): Date {
+  const nextMinute = Math.ceil((now.getTime() + 30 * 60_000) / 60_000) * 60_000;
+  const suggestion = new Date(nextMinute);
+  if (Math.floor(suggestion.getTime() / 60_000) === Math.floor(new Date(meeting.meetingTime).getTime() / 60_000)) {
+    suggestion.setTime(suggestion.getTime() + 15 * 60_000);
+  }
+  return suggestion;
 }
 
 export function meetingEditFields(meeting: Meeting): MeetingEditFields {
@@ -35,6 +46,9 @@ export function applyMeetingEdit(meeting: Meeting, fields: MeetingEditFields, no
   }
   if (hour > 23 || minute > 59 || date.getHours() !== hour || date.getMinutes() !== minute) {
     throw new Error('Giờ không hợp lệ.');
+  }
+  if (date.getTime() !== new Date(meeting.meetingTime).getTime()) {
+    assertFutureMeetingTime(date, now);
   }
   if (!/^\d+$/.test(fields.advance.trim()) || Number(fields.advance) > 10080) {
     throw new Error('Báo trước phải từ 0 đến 10080 phút.');

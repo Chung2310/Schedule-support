@@ -47,7 +47,7 @@ function notificationHarness(platform = 'ios', initialMeetings = [meeting()]) {
     getPermissionsAsync: async () => ({ granted: state.granted, canAskAgain: false }),
     requestPermissionsAsync: async () => { throw new Error('Must not request denied permissions again'); },
     setNotificationChannelAsync: async (id, options) => { channels.set(id, options); },
-    setNotificationCategoryAsync: async () => {},
+    setNotificationCategoryAsync: async (id, actions) => { state.category = { id, actions }; },
     getAllScheduledNotificationsAsync: async () => [...pending.values()],
     scheduleNotificationAsync: async (request) => {
       if (platform === 'android') assert.ok(channels.has(request.trigger.channelId), 'Create sound channel before scheduling');
@@ -276,6 +276,25 @@ test('tapping a notification opens its meeting without acknowledging it', async 
   await harness.restart().init({ onAlarm() {}, onAcknowledged() { throw new Error('Must not acknowledge a regular tap'); }, onNotificationOpen(value) { opened = value; } });
   assert.equal(opened.id, 'meeting-a');
   assert.equal(harness.rows[0].status, 'UPCOMING');
+});
+
+test('notification reschedule action opens the existing meeting without acknowledging it', async () => {
+  const harness = notificationHarness();
+  harness.state.lastResponse = {
+    actionIdentifier: 'RESCHEDULE_ACTION',
+    notification: { request: { identifier: 'reschedule-id', content: { data: { meetingId: 'meeting-a' } } } },
+  };
+  let selected;
+  await harness.restart().init({
+    onAlarm() {},
+    onAcknowledged() { throw new Error('Rescheduling must not acknowledge the meeting'); },
+    onNotificationOpen() {},
+    onReschedule(meeting) { selected = meeting; },
+  });
+  assert.equal(selected.id, 'meeting-a');
+  assert.equal(harness.rows[0].status, 'UPCOMING');
+  assert.equal(harness.state.lastResponse, null);
+  assert.ok(harness.state.category.actions.some(action => action.identifier === 'RESCHEDULE_ACTION' && action.options.opensAppToForeground));
 });
 
 test('after 07:00, briefing content and date both belong to tomorrow', async () => {

@@ -6,6 +6,7 @@ import { useCancelMeetingDialog } from './AppDialog';
 
 import { isSameDay } from '../utils/dateUtils';
 import { getCalendarAccentColor, getCalendarCardBackground } from '../utils/calendarColor';
+import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
 
 interface MeetingCardProps {
   meeting: Meeting;
@@ -61,7 +62,7 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
             <Text style={styles.dateBadgePillText}>{dateLabel}</Text>
           </View>
         ) : (
-          <Text style={styles.leadTimeText}>-{meeting.advanceNoticeMinutes}p</Text>
+          <Text style={styles.leadTimeText}>-{formatAdvanceNotice(meeting.advanceNoticeMinutes, true)}</Text>
         )}
       </View>
 

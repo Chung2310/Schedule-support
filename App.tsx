@@ -33,8 +33,10 @@ import { SettingsScreen } from './src/components/SettingsScreen';
 import { EditMeetingModal } from './src/components/EditMeetingModal';
 import { NotesScreen } from './src/components/NotesScreen';
 import { FloatingMicrophoneButton } from './src/components/FloatingMicrophoneButton';
-import { applyMeetingEdit, MeetingEditFields } from './src/utils/meetingEdit';
+import { applyMeetingEdit, MeetingEditFields, suggestRescheduleTime } from './src/utils/meetingEdit';
 import { MeetingConflictError } from './src/utils/meetingConflict';
+import { assertFutureMeetingTime, PastMeetingTimeError } from './src/utils/futureMeetingTime';
+import { expandMeetingRecurrence, type MeetingRecurrence } from './src/utils/recurringMeetings';
 import { WelcomeScreen } from './src/components/WelcomeScreen';
 import { AppDialogProvider, useAppDialog } from './src/components/AppDialog';
 
@@ -81,9 +83,32 @@ function AppContent() {
   // Modals state
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
+  const [rescheduleSuggestion, setRescheduleSuggestion] = useState<Date | null>(null);
+  const reschedulingRef = useRef(false);
 
   // Active alarm for iPhone-style full overlay
   const [activeAlarmMeeting, setActiveAlarmMeeting] = useState<Meeting | null>(null);
+  const handleRescheduleMeeting = useCallback((meeting: Meeting) => {
+    reschedulingRef.current = true;
+    AlarmManager.pauseForegroundReminders();
+    setActiveAlarmMeeting(null);
+    setRescheduleSuggestion(suggestRescheduleTime(meeting));
+    setEditingMeeting(meeting);
+  }, []);
+
+  const handleCloseEditMeeting = () => {
+    setEditingMeeting(null);
+    if (!reschedulingRef.current) return;
+    reschedulingRef.current = false;
+    setRescheduleSuggestion(null);
+    void StorageService.getMeetings()
+      .then((current) => {
+        const pendingAlarm = current.find((meeting) => meeting.id === editingMeeting?.id && meeting.status === 'REMINDING');
+        if (pendingAlarm) setActiveAlarmMeeting(pendingAlarm);
+        AlarmManager.resumeForegroundReminders(current, settings);
+      })
+      .catch((error) => console.warn('Could not resume reminders:', error));
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -125,7 +150,7 @@ function AppContent() {
     setIsCalendarLoaded(true);
 
     await AlarmManager.syncNotifications(loadedSettings);
-    AlarmManager.resumeForegroundReminders(loadedMeetings, loadedSettings);
+    if (!reschedulingRef.current) AlarmManager.resumeForegroundReminders(loadedMeetings, loadedSettings);
   }, []);
 
   useEffect(() => {
@@ -150,6 +175,7 @@ function AppContent() {
             setViewMode('DAY');
             setActiveTab('calendar');
           },
+          onReschedule: handleRescheduleMeeting,
         });
         if (!disposed) await loadData();
       } finally {
@@ -169,7 +195,7 @@ function AppContent() {
       subscription.remove();
       AlarmManager.pauseForegroundReminders();
     };
-  }, [loadData]);
+  }, [loadData, handleRescheduleMeeting]);
 
   // Bộ đếm thời gian kiểm tra nhắc lịch theo chu kỳ
   useEffect(() => {
@@ -222,36 +248,45 @@ function AppContent() {
     advanceNoticeMinutes: number;
     repeatIntervalMinutes: number;
     voiceText: string;
+    recurrence?: MeetingRecurrence;
+    items?: { title: string; meetingTime: Date; voiceText: string }[];
   }) => {
-    const firstReminder = AlarmManager.calculateFirstReminder(
-      data.meetingTime,
-      data.advanceNoticeMinutes
-    );
-
-    const newMeeting: Meeting = {
-      id: `meeting-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      title: data.title,
-      meetingTime: data.meetingTime.toISOString(),
+    const times = data.recurrence
+      ? expandMeetingRecurrence(data.meetingTime, data.recurrence)
+      : [data.meetingTime];
+    const entries = data.items?.length ? data.items : times.map(time => ({
+      title: data.title, meetingTime: time, voiceText: data.voiceText,
+    }));
+    if (!entries.length) {
+      throw new Error('Khoảng lặp lại không có ngày hẹn sắp tới.');
+    }
+    entries.forEach(item => assertFutureMeetingTime(item.meetingTime));
+    const batchId = `meeting-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const createdAt = new Date().toISOString();
+    const newMeetings: Meeting[] = entries.map((entry, index) => ({
+      id: `${batchId}-${index}`,
+      title: entry.title,
+      meetingTime: entry.meetingTime.toISOString(),
       advanceNoticeMinutes: data.advanceNoticeMinutes,
       repeatIntervalMinutes: data.repeatIntervalMinutes,
-      firstReminderTime: firstReminder.toISOString(),
+      firstReminderTime: AlarmManager.calculateFirstReminder(entry.meetingTime, data.advanceNoticeMinutes).toISOString(),
       status: 'UPCOMING',
       nagCount: 0,
-      voiceText: data.voiceText,
-      createdAt: new Date().toISOString(),
-    };
+      voiceText: entry.voiceText,
+      createdAt,
+    }));
 
     let updated: Meeting[];
     try {
-      updated = await StorageService.addMeeting(newMeeting);
+      updated = await StorageService.addMeetings(newMeetings);
     } catch (error) {
-      if (error instanceof MeetingConflictError) throw error;
+      if (error instanceof MeetingConflictError || error instanceof PastMeetingTimeError) throw error;
       throw new Error('Chưa lưu được lịch trên thiết bị. Hãy kiểm tra dung lượng trống và thử lại.');
     }
     setMeetings(updated);
 
     // Chuyển ngày được chọn sang ngày của cuộc hẹn vừa thêm & chuyển sang xem chi tiết ngày đó
-    setSelectedDate(data.meetingTime);
+    setSelectedDate(entries[0].meetingTime);
     setViewMode('DAY');
 
     // Kích hoạt thông báo nền hệ điều hành
@@ -259,7 +294,7 @@ function AppContent() {
     setIsVoiceModalOpen(false);
     if (!notificationsScheduled && Platform.OS !== 'web') {
       showDialog('Đã lưu lịch hẹn', 'Chưa thể bật thông báo nhắc lịch. Hãy kiểm tra quyền thông báo của ứng dụng trong Cài đặt thiết bị.');
-    } else if (AlarmManager.voiceFallbackMeetingIds.has(newMeeting.id)) {
+    } else if (newMeetings.some((meeting) => AlarmManager.voiceFallbackMeetingIds.has(meeting.id))) {
       showDialog('Đã lưu lịch hẹn', 'Lịch này sẽ dùng chuông báo vì chưa tạo được giọng đọc. Hãy dùng bản cài mới và kiểm tra giọng tiếng Việt đã tải trên thiết bị.');
     }
   };
@@ -288,6 +323,8 @@ function AppContent() {
     await AlarmManager.cancelAlarm(edited.id).catch(error => console.warn('Could not cancel old meeting reminders:', error));
     const scheduled = await AlarmManager.syncNotifications(settings);
     setEditingMeeting(null);
+    reschedulingRef.current = false;
+    setRescheduleSuggestion(null);
     if (voiceTarget) setIsVoiceModalOpen(false);
     AlarmManager.resumeForegroundReminders(updated, settings);
     if (!scheduled && Platform.OS !== 'web') {
@@ -477,6 +514,7 @@ function AppContent() {
         visible={!!activeAlarmMeeting}
         meeting={activeAlarmMeeting}
         onDismiss={handleDismissAlarm}
+        onReschedule={handleRescheduleMeeting}
       />
 
       {/* Modal thu âm & xác nhận thông minh 1 BƯỚC DUY NHẤT */}
@@ -495,7 +533,8 @@ function AppContent() {
       {editingMeeting ? <EditMeetingModal
         key={editingMeeting.id}
         meeting={editingMeeting}
-        onClose={() => setEditingMeeting(null)}
+        suggestedTime={rescheduleSuggestion ?? undefined}
+        onClose={handleCloseEditMeeting}
         onSave={handleSaveEditedMeeting}
       /> : null}
 
