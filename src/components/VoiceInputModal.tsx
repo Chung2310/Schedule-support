@@ -25,9 +25,10 @@ import { findMeetingTimeConflict, meetingConflictMessage, meetingMinute } from '
 import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
 import { expandMeetingRecurrence, meetingRecurrenceLabel, type MeetingRecurrence } from '../utils/recurringMeetings';
 import { RecordingWaveform, type RecordingWaveformHandle } from './RecordingWaveform';
+import { ListeningFace } from './ListeningFace';
 import { useCurrentMinute } from '../hooks/useLocalDay';
 import { isFutureMeetingTime, PastMeetingTimeError } from '../utils/futureMeetingTime';
-import { BrandConfirmButton, RainbowCircleOutline } from './RainbowConfirmButton';
+import { BrandConfirmButton } from './RainbowConfirmButton';
 
 interface VoiceInputModalProps {
   visible: boolean;
@@ -386,7 +387,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               >
               {/* Khu vực Micro đơn giản, rõ ràng */}
               <View style={styles.micContainer}>
-                <RecordingWaveform ref={waveformRef} active={isListening} />
+                <ListeningFace active={isListening} size={205} />
                 {speechBusy ? <Text style={styles.listeningHeadline} accessibilityLiveRegion="polite">
                   {isListening ? 'Tôi đang nghe đây...' : isStarting ? 'Đang chuẩn bị micro...' : 'Đang hoàn tất nhận diện...'}
                 </Text> : null}
@@ -408,8 +409,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                       color="#FFFFFF"
                     />
                   </TouchableOpacity>
-                  <RainbowCircleOutline active={speechBusy} size={64} />
                 </View>
+                <RecordingWaveform ref={waveformRef} active={isListening} />
 
                 {errorMessage ? (
                   <Text style={styles.errorText}>{errorMessage}</Text>
