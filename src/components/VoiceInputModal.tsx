@@ -16,13 +16,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { STTService } from '../services/sttService';
-import { parseVietnameseVoiceMeeting } from '../services/nlpParser';
+import { parseVietnameseVoiceSchedule } from '../services/nlpParser';
 import { AppSettings } from '../types/settings';
 import type { Meeting } from '../types/meeting';
 import { voiceEditCommand, voiceEditFields } from '../services/voiceMeetingCommand';
 import { applyMeetingEdit, type MeetingEditFields } from '../utils/meetingEdit';
 import { findMeetingTimeConflict, meetingConflictMessage, meetingMinute } from '../utils/meetingConflict';
-import { ListeningFace } from './ListeningFace';
+import { formatAdvanceNotice } from '../utils/formatAdvanceNotice';
+import { expandMeetingRecurrence, meetingRecurrenceLabel, type MeetingRecurrence } from '../utils/recurringMeetings';
+import { RecordingWaveform, type RecordingWaveformHandle } from './RecordingWaveform';
+import { useCurrentMinute } from '../hooks/useLocalDay';
+import { isFutureMeetingTime, PastMeetingTimeError } from '../utils/futureMeetingTime';
 import { BrandConfirmButton, RainbowCircleOutline } from './RainbowConfirmButton';
 
 interface VoiceInputModalProps {
@@ -35,6 +39,8 @@ interface VoiceInputModalProps {
     advanceNoticeMinutes: number;
     repeatIntervalMinutes: number;
     voiceText: string;
+    recurrence?: MeetingRecurrence;
+    items?: { title: string; meetingTime: Date; voiceText: string }[];
   }) => Promise<void>;
   initialText?: string;
   selectedDate: Date;
@@ -62,6 +68,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const [chosenMeeting, setChosenMeeting] = useState<{ transcript: string; id: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const currentMinute = useCurrentMinute();
   const commandNow = useMemo(() => { void transcript; return new Date(); }, [transcript]);
   const editCommand = useMemo(() => voiceEditCommand(transcript, meetings, commandNow), [transcript, meetings, commandNow]);
   const editTarget = editCommand?.candidates.length === 1 ? editCommand.candidates[0]
@@ -80,6 +87,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const [timeOffsetMinutes, setTimeOffsetMinutes] = useState(0);
 
   const inputRef = useRef<TextInput>(null);
+  const waveformRef = useRef<RecordingWaveformHandle>(null);
   const autoStartedRef = useRef(false);
 
   const isNativeSTT = STTService.isNativeAvailable();
@@ -122,10 +130,11 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   }, [visible, stopListening]);
 
   // Bộ phân tích ngôn ngữ tự nhiên chạy trực tiếp từ lời nói người dùng
-  const parsed = useMemo(() => {
-    if (!transcript.trim()) return null;
-    return parseVietnameseVoiceMeeting(transcript.trim(), new Date(), selectedDate, settings);
+  const parsedSchedule = useMemo(() => {
+    if (!transcript.trim()) return [];
+    return parseVietnameseVoiceSchedule(transcript.trim(), new Date(), selectedDate, settings);
   }, [transcript, selectedDate, settings]);
+  const parsed = parsedSchedule[0] ?? null;
 
   // Thời gian cuộc họp thực tế
   const effectiveMeetingDate = useMemo(() => {
@@ -142,6 +151,31 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     return baseDate;
   }, [parsed, selectedDate, timeOffsetMinutes]);
 
+  const bulkItems = useMemo(() => parsedSchedule.length > 1 ? parsedSchedule.map(item => {
+    const meetingTime = new Date(item.datetime.getTime() + timeOffsetMinutes * 60_000);
+    return {
+      title: item.title,
+      meetingTime,
+      voiceText: `${meetingTime.getHours()} giờ${meetingTime.getMinutes() ? ` ${meetingTime.getMinutes()} phút` : ''}. ${item.title}`,
+    };
+  }) : [], [parsedSchedule, timeOffsetMinutes]);
+  const bulkError = bulkItems.length && (bulkItems.some(item => !isFutureMeetingTime(item.meetingTime, currentMinute))
+    || new Set(bulkItems.map(item => meetingMinute(item.meetingTime.toISOString()))).size !== bulkItems.length)
+    ? 'Các lịch phải ở tương lai và không được trùng giờ với nhau.'
+    : null;
+
+  const recurrenceDates = useMemo(() => parsed?.recurrence
+    ? expandMeetingRecurrence(effectiveMeetingDate, parsed.recurrence)
+    : [], [effectiveMeetingDate, parsed]);
+  const recurrenceError = parsed?.recurrence?.until.getTime() === 0
+    ? 'Ngày kết thúc không hợp lệ. Hãy sửa lại tháng hoặc ngày.'
+    : parsed?.recurrence && (!recurrenceDates.length || recurrenceDates.some(date => !isFutureMeetingTime(date, currentMinute)))
+      ? 'Khoảng lặp lại không có ngày hẹn sắp tới. Hãy sửa ngày kết thúc hoặc giờ hẹn.'
+      : null;
+  const pastError = !editCommand && !bulkItems.length && !parsed?.recurrence && transcript.trim()
+    && !isFutureMeetingTime(effectiveMeetingDate, currentMinute)
+    ? new PastMeetingTimeError().message : null;
+
   const timeConflict = useMemo(() => {
     if (!transcript.trim() || saving) return undefined;
     if (editCommand) {
@@ -149,9 +183,23 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
           meetingMinute(editPreview.meeting.meetingTime) === meetingMinute(editTarget.meetingTime)) return undefined;
       return findMeetingTimeConflict(meetings, editPreview.meeting.meetingTime, editTarget.id);
     }
+    if (bulkItems.length) {
+      for (const item of bulkItems) {
+        const conflict = findMeetingTimeConflict(meetings, item.meetingTime.toISOString());
+        if (conflict) return conflict;
+      }
+      return undefined;
+    }
+    if (parsed?.recurrence) {
+      for (const date of recurrenceDates) {
+        const conflict = findMeetingTimeConflict(meetings, date.toISOString());
+        if (conflict) return conflict;
+      }
+      return undefined;
+    }
     if (!Number.isFinite(effectiveMeetingDate.getTime())) return undefined;
     return findMeetingTimeConflict(meetings, effectiveMeetingDate.toISOString());
-  }, [transcript, saving, editCommand, editPreview, editTarget, meetings, effectiveMeetingDate]);
+  }, [transcript, saving, editCommand, editPreview, editTarget, meetings, effectiveMeetingDate, parsed, recurrenceDates, bulkItems]);
 
   const effectiveTitle = useMemo(() => {
     if (parsed && parsed.title) return parsed.title;
@@ -185,6 +233,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
         setTranscript(text);
         setTimeOffsetMinutes(0);
       },
+      onVolumeChange: (volume) => waveformRef.current?.setLevel(volume),
       onFinishing: () => {
         setIsFinishing(true);
       },
@@ -247,7 +296,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   // Xác nhận lưu lịch
   const handleConfirm = async () => {
-    if (!transcript.trim() || isStarting || isListening || isFinishing || savingRef.current || timeConflict) return;
+    if (!transcript.trim() || isStarting || isListening || isFinishing || savingRef.current || timeConflict || recurrenceError || bulkError || pastError) return;
     if (editCommand) {
       if (!editPreview?.fields || !editTarget) return;
       savingRef.current = true;
@@ -279,6 +328,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
         advanceNoticeMinutes: settings.defaultAdvanceNoticeMinutes || 15,
         repeatIntervalMinutes: settings.defaultRepeatIntervalMinutes || 5,
         voiceText: voiceSummary,
+        recurrence: parsed?.recurrence,
+        items: bulkItems.length ? bulkItems : undefined,
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Chưa lưu được lịch hẹn.');
@@ -301,7 +352,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   const hasContent = transcript.trim().length > 0;
   const speechBusy = isStarting || isListening || isFinishing;
-  const canConfirm = hasContent && !speechBusy && !saving && !timeConflict && (!editCommand || !!editPreview?.meeting);
+  const canConfirm = hasContent && !speechBusy && !saving && !timeConflict && !recurrenceError && !bulkError && !pastError && (!editCommand || !!editPreview?.meeting);
 
   return (
     <Modal visible={visible} animationType="slide" onShow={handleModalShow} onRequestClose={handleClose}>
@@ -335,7 +386,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               >
               {/* Khu vực Micro đơn giản, rõ ràng */}
               <View style={styles.micContainer}>
-                <ListeningFace key={speechBusy ? 'listening' : 'idle'} active={speechBusy} />
+                <RecordingWaveform ref={waveformRef} active={isListening} />
                 {speechBusy ? <Text style={styles.listeningHeadline} accessibilityLiveRegion="polite">
                   {isListening ? 'Tôi đang nghe đây...' : isStarting ? 'Đang chuẩn bị micro...' : 'Đang hoàn tất nhận diện...'}
                 </Text> : null}
@@ -417,8 +468,16 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     <Text style={styles.timeBoldText}>Sau khi sửa</Text>
                     <Text style={styles.titleBoldText}>{editPreview.meeting.title}</Text>
                     <Text style={styles.dateSubText}>{new Date(editPreview.meeting.meetingTime).toLocaleString('vi-VN')}</Text>
-                    <Text style={styles.dateSubText}>Báo trước {editPreview.meeting.advanceNoticeMinutes} phút · Nhắc lại {editPreview.meeting.repeatIntervalMinutes} phút</Text>
+                    <Text style={styles.dateSubText}>Báo trước {formatAdvanceNotice(editPreview.meeting.advanceNoticeMinutes)} · Nhắc lại {editPreview.meeting.repeatIntervalMinutes} phút</Text>
                   </View> : null}
+                </View>
+              ) : !speechBusy && bulkItems.length > 1 ? (
+                <View style={styles.previewCard}>
+                  <Text style={styles.previewTitle}>Sẽ tạo {bulkItems.length} lịch</Text>
+                  {bulkItems.map((item, index) => <View key={index} style={styles.previewValueColumn}>
+                    <Text style={styles.previewTitle}>{item.title}</Text>
+                    <Text style={styles.dateSubText}>{item.meetingTime.toLocaleString('vi-VN')}</Text>
+                  </View>)}
                 </View>
               ) : !speechBusy && hasContent ? (
                 <View style={styles.previewCard}>
@@ -452,6 +511,13 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                     </View>
                     <View style={styles.previewValueColumn}>
                       <Text style={styles.previewTitle}>{effectiveTitle}</Text>
+                      {parsed?.recurrence && !recurrenceError ? <Text style={styles.dateSubText}>
+                        {meetingRecurrenceLabel(parsed.recurrence)} · {recurrenceDates.length} lịch · đến {parsed.recurrence.until.toLocaleDateString('vi-VN')}
+                        {parsed.recurrence.defaultEnd ? ' (mặc định 12 tháng)' : ''}
+                      </Text> : null}
+                      {parsed?.recurrence && recurrenceDates.length > 12 && Platform.OS !== 'web' ? <Text style={styles.dateSubText}>
+                        Mở ứng dụng định kỳ để nạp thông báo cho các lịch ở xa.
+                      </Text> : null}
                     </View>
                   </View>
                 </View>
@@ -461,10 +527,13 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               {timeConflict && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>
                 {meetingConflictMessage(timeConflict)}
               </Text> : null}
+              {recurrenceError && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{recurrenceError}</Text> : null}
+              {bulkError && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{bulkError}</Text> : null}
+              {pastError && !speechBusy ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{pastError}</Text> : null}
               <BrandConfirmButton
                 disabled={!canConfirm}
                 onPress={handleConfirm}
-                label={saving ? 'Đang chuẩn bị giọng đọc…' : editCommand ? 'Lưu thay đổi' : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
+                label={saving ? 'Đang chuẩn bị giọng đọc…' : editCommand ? 'Lưu thay đổi' : bulkItems.length > 1 ? `Tạo ${bulkItems.length} lịch` : recurrenceDates.length ? `Tạo ${recurrenceDates.length} lịch` : hasContent ? `Xác Nhận (${timeStr})` : 'Xác Nhận'}
               />
               {saving ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để bật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
               </ScrollView>
