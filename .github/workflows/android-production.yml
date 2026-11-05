@@ -1,0 +1,229 @@
+name: App CI and Production Android Release
+
+on:
+  push:
+    branches:
+      - develop
+      - production
+  pull_request:
+    branches:
+      - develop
+      - production
+  workflow_dispatch:
+    inputs:
+      upload_to_play:
+        description: 'Upload when GOOGLE_PLAY_UPLOAD_ENABLED=true (disable for build only)'
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+# Serialize the entire production build/upload sequence across trigger types.
+concurrency:
+  group: android-production-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate Android release source
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up Java 17 for signature regression checks
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check reminder, storage and release regressions
+        run: npm test
+        env:
+          RUN_ANDROID_JAVA_TESTS: '1'
+
+      - name: Check Expo dependencies and configuration
+        run: npx --yes expo-doctor@1.21.6
+
+      - name: Check Android build and upload configuration
+        run: npm run android:check
+
+  build-android:
+    name: Build production AAB on GitHub Ubuntu
+    if: ${{ github.ref == 'refs/heads/production' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: validate
+    runs-on: ubuntu-24.04
+    environment: google-play
+    timeout-minutes: 90
+    outputs:
+      aab-artifact-id: ${{ steps.aab-artifact.outputs.artifact-id }}
+    env:
+      ANDROID_UPLOAD_TO_PLAY: ${{ vars.GOOGLE_PLAY_UPLOAD_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || inputs.upload_to_play) }}
+      GOOGLE_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+      ANDROID_VERSION_CODE_BASE: ${{ vars.ANDROID_VERSION_CODE_BASE }}
+      EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
+      EXPO_PUBLIC_TERMS_OF_SERVICE_URL: ${{ vars.EXPO_PUBLIC_TERMS_OF_SERVICE_URL }}
+      EXPO_PUBLIC_DATA_DELETION_URL: ${{ vars.EXPO_PUBLIC_DATA_DELETION_URL }}
+      EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
+    steps:
+      - name: Check out production source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Check release secrets and reject obsolete commits
+        run: node scripts/check-android-release-inputs.cjs --build
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Android SDK 36
+        run: |
+          test -n "$ANDROID_HOME"
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          set -o pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --install "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Check production build configuration
+        run: npm run android:check
+
+      - name: Generate Android project and build signed AAB with Gradle
+        run: npm run build:android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Remove temporary signing key
+        if: ${{ always() }}
+        run: rm -f -- "$RUNNER_TEMP/android-signing/upload.keystore"
+
+      - name: Download bundletool 1.18.3 and verify its checksum
+        run: |
+          mkdir -p "$RUNNER_TEMP/android-tools"
+          curl --fail --location --retry 3 --connect-timeout 15 --max-time 180 \
+            'https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar' \
+            --output "$RUNNER_TEMP/android-tools/bundletool.jar"
+          printf '%s  %s\n' 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29' "$RUNNER_TEMP/android-tools/bundletool.jar" | sha256sum --check
+
+      - name: Verify embedded JavaScript, native manifest and upload certificate
+        run: python3 scripts/check-android-bundle.py "$RUNNER_TEMP/android-artifacts" "$RUNNER_TEMP/android-tools/bundletool.jar"
+
+      - name: Save AAB and build information
+        id: aab-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: igencheck-android-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/android-artifacts/igencheck.aab
+            ${{ runner.temp }}/android-artifacts/build-info.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Explain first-upload build-only result
+        if: ${{ vars.GOOGLE_PLAY_UPLOAD_ENABLED != 'true' || (github.event_name == 'workflow_dispatch' && !inputs.upload_to_play) }}
+        run: |
+          printf '%s\n' '## Build-only Android release' '' 'Download igencheck.aab from this run artifact and upload the first release through Play Console. After setup, set GOOGLE_PLAY_UPLOAD_ENABLED=true in repository variables; later runs can upload automatically to internal testing.' >> "$GITHUB_STEP_SUMMARY"
+
+  submit-android:
+    name: Upload production AAB to Google Play internal testing
+    if: ${{ github.ref == 'refs/heads/production' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.GOOGLE_PLAY_UPLOAD_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || inputs.upload_to_play) }}
+    needs: build-android
+    runs-on: ubuntu-latest
+    environment: google-play
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GOOGLE_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+    steps:
+      - name: Check out production source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check Google Play credentials and reject obsolete commits
+        run: node scripts/check-android-release-inputs.cjs --upload
+
+      - name: Check production upload configuration
+        run: |
+          node -e "if (!/^\d+$/.test(process.env.AAB_ARTIFACT_ID || '')) throw new Error('AAB artifact ID is missing.');"
+        env:
+          AAB_ARTIFACT_ID: ${{ needs.build-android.outputs.aab-artifact-id }}
+
+      - name: Download the AAB from the build job
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build-android.outputs.aab-artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/android-artifacts
+
+      - name: Verify AAB identity, commit and checksum
+        run: node scripts/check-android-artifact.cjs
+
+      - name: Authenticate to Google Play through Workload Identity Federation
+        id: google-auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3, pinned
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+          export_environment_variables: true
+          cleanup_credentials: true
+
+      - name: Upload this AAB directly to Google Play
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1, pinned
+        with:
+          serviceAccountJson: ${{ steps.google-auth.outputs.credentials_file_path }}
+          packageName: com.company.ceovoicecalendar
+          releaseFiles: ${{ runner.temp }}/android-artifacts/igencheck.aab
+          tracks: internal
+          status: completed
+
+      - name: Write upload summary
+        run: |
+          printf '%s\n' '## Android upload completed' '' 'Uploaded the Gradle AAB from this run directly to Google Play internal testing. Check processing and tester access in Play Console.' >> "$GITHUB_STEP_SUMMARY"

@@ -34,6 +34,7 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
+      "./plugins/withAndroidRelease.cjs",
       "expo-font",
       [
         "expo-notifications",

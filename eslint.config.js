@@ -5,7 +5,7 @@ module.exports = defineConfig([
   expoConfig,
   { ignores: ['dist/**', '.expo/**'] },
   {
-    files: ['scripts/**/*.cjs', 'tests/**/*.cjs'],
+    files: ['scripts/**/*.cjs', 'tests/**/*.cjs', 'plugins/**/*.cjs'],
     languageOptions: { globals: { __dirname: 'readonly', module: 'readonly', require: 'readonly', exports: 'readonly', process: 'readonly', Buffer: 'readonly', console: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly' } },
   },
 ]);
