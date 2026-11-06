@@ -20,13 +20,16 @@ function prepareSubmitConfig(eas, env = process.env) {
   return result;
 }
 
-function validateArtifact(info, sha256, env = process.env) {
+function validateArtifact(info, sha256, env = process.env, expectedVersion) {
   if (info.bundleIdentifier !== 'com.igen.schedule' || info.displayName !== 'iGen Check' ||
       info.appleTeam !== 'VP77TD9A77') {
     throw new Error('Downloaded IPA metadata belongs to another app or Apple Team.');
   }
   if (!env.GITHUB_SHA || info.commit !== env.GITHUB_SHA) {
     throw new Error('Downloaded IPA was built from a different commit.');
+  }
+  if (expectedVersion !== undefined && info.version !== expectedVersion) {
+    throw new Error('Downloaded IPA version differs from the release version in app.json.');
   }
   if (!/^[a-f0-9]{64}$/.test(info.sha256 || '') || info.sha256 !== sha256) {
     throw new Error('Downloaded IPA checksum does not match the validated build.');
@@ -60,7 +63,7 @@ function run() {
   const ipa = path.join(directory, 'igencheck.ipa');
   const info = JSON.parse(fs.readFileSync(path.join(directory, 'build-info.json'), 'utf8'));
   const sha256 = crypto.createHash('sha256').update(fs.readFileSync(ipa)).digest('hex');
-  validateArtifact(info, sha256);
+  validateArtifact(info, sha256, process.env, app.version);
   const result = spawnSync('npx', submitArguments(ipa), { cwd: projectRoot, env: process.env, stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) {

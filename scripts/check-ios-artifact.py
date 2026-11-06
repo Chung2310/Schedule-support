@@ -117,11 +117,14 @@ def validate_widget_extension(app, info, app_entitlements, app_profile):
     return {"bundleIdentifier": WIDGET_BUNDLE_ID, "appGroup": WIDGET_GROUP, "profileExpiresAt": expiry}
 
 
-def validate_ipa(ipa, require_widget=False):
+def validate_ipa(ipa, require_widget=False, expected_version=None):
     # CLI releases require the widget; callers inspecting older IPAs can omit it.
     require(sys.platform == "darwin", "Signature verification requires the macOS build runner.")
     require(ipa.is_file() and ipa.stat().st_size > 0, "IPA file is missing or empty.")
     app_root, info, profile_bytes, manifest_count = inspect_archive(ipa)
+    if expected_version is not None:
+        require(info["CFBundleShortVersionString"] == expected_version,
+                "IPA version differs from the release version in app.json.")
     widget = None
     with tempfile.TemporaryDirectory(prefix="schedule-ipa-check-") as directory:
         directory = Path(directory)
@@ -167,7 +170,10 @@ def validate_ipa(ipa, require_widget=False):
 def main():
     require(len(sys.argv) == 2, "Usage: python3 scripts/check-ios-artifact.py <file.ipa>")
     ipa = Path(sys.argv[1]).resolve()
-    result = validate_ipa(ipa, require_widget=True)
+    config = json.loads((Path(__file__).resolve().parents[1] / "app.json").read_text(encoding="utf-8"))["expo"]
+    version = config["version"]
+    require(isinstance(version, str) and re.fullmatch(r"\d+\.\d+\.\d+", version), "Set a release version in app.json.")
+    result = validate_ipa(ipa, require_widget=True, expected_version=version)
     (ipa.parent / "build-info.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2))
     if os.environ.get("GITHUB_STEP_SUMMARY"):

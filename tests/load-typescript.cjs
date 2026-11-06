@@ -12,7 +12,7 @@ function createLoader(mocks = {}, globals = {}) {
     const module = { exports: {} };
     cache.set(absolute, module);
     const compiled = ts.transpileModule(fs.readFileSync(absolute, 'utf8'), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
     }).outputText;
     vm.runInNewContext(compiled, {
       module, exports: module.exports, console, Date, setTimeout, clearTimeout, ...globals,
@@ -20,7 +20,7 @@ function createLoader(mocks = {}, globals = {}) {
         if (Object.hasOwn(mocks, name)) return mocks[name];
         if (!name.startsWith('.')) throw new Error(`Unmocked native import: ${name}`);
         const target = path.resolve(path.dirname(absolute), name);
-        for (const extension of ['.ts', '.json']) {
+        for (const extension of ['.ts', '.tsx', '.json']) {
           if (fs.existsSync(target + extension)) {
             if (extension === '.json') return JSON.parse(fs.readFileSync(target + extension, 'utf8'));
             return load(target + extension);

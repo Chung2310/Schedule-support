@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { DateTimePicker } from '@expo/ui/community/datetime-picker';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { Meeting } from '../types/meeting';
@@ -35,6 +35,16 @@ export function EditMeetingModal({ meeting, suggestedTime, onClose, onSave }: Pr
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const savingRef = useRef(false);
+  const showingIOSPicker = Platform.OS === 'ios' && pickerTarget !== null;
+  const openPicker = (target: PickerTarget) => {
+    Keyboard.dismiss();
+    setPickerTarget(target);
+  };
+  const close = () => {
+    if (savingRef.current) return;
+    if (pickerTarget) setPickerTarget(null);
+    else onClose();
+  };
   const change = (key: keyof MeetingEditFields, value: string) => {
     setFields(previous => ({ ...previous, [key]: value }));
     setError('');
@@ -66,17 +76,30 @@ export function EditMeetingModal({ meeting, suggestedTime, onClose, onSave }: Pr
     }
   };
   return <>
-    <Modal visible transparent animationType="slide" onRequestClose={() => { if (!savingRef.current) onClose(); }}>
+    <Modal visible transparent animationType="slide" onRequestClose={close}>
       <SafeAreaProvider style={styles.modalRoot}>
         <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <SafeAreaView style={styles.sheet} edges={['bottom']}>
           <View style={styles.header}>
-            <Text style={styles.heading}>{suggestedTime ? 'Đặt lại lịch hẹn' : 'Sửa cuộc họp'}</Text>
-            <TouchableOpacity disabled={saving} onPress={onClose} accessibilityLabel="Đóng" style={styles.close}>
-              <Ionicons name="close" size={22} color="#64748B" />
+            <Text style={styles.heading}>{showingIOSPicker ? pickerTarget === 'date' ? 'Chọn ngày' : 'Chọn giờ' : suggestedTime ? 'Đặt lại lịch hẹn' : 'Sửa cuộc họp'}</Text>
+            <TouchableOpacity disabled={saving} onPress={close} accessibilityRole="button" accessibilityLabel={showingIOSPicker ? 'Xong' : 'Đóng'} style={styles.close}>
+              {showingIOSPicker ? <Text style={styles.pickerDone}>Xong</Text> : <Ionicons name="close" size={22} color="#64748B" />}
             </TouchableOpacity>
           </View>
-          <ScrollView keyboardShouldPersistTaps="handled">
+          {showingIOSPicker ? <ScrollView style={styles.formScroll} contentContainerStyle={styles.pickerContent}>
+            {/* Keep the native picker inside the already presented iOS modal. */}
+            <DateTimePicker
+              key={pickerTarget}
+              style={styles.nativePicker}
+              value={selectedDate}
+              mode={pickerTarget ?? 'date'}
+              display={pickerTarget === 'date' ? 'inline' : 'spinner'}
+              locale="vi_VN"
+              themeVariant="light"
+              accentColor="#00ADFC"
+              onValueChange={(_event, date) => updatePickerValue(date)}
+            />
+          </ScrollView> : <ScrollView style={styles.formScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.label}>Nội dung</Text>
             <TextInput accessibilityLabel="Nội dung cuộc họp" style={[styles.input, styles.title]} multiline
               value={fields.title} onChangeText={value => change('title', value)} editable={!saving} />
@@ -85,7 +108,7 @@ export function EditMeetingModal({ meeting, suggestedTime, onClose, onSave }: Pr
                 <Text style={styles.label}>Ngày</Text>
                 {Platform.OS === 'web' ? <TextInput accessibilityLabel="Ngày cuộc họp" style={styles.input} value={fields.date} placeholder="dd/mm/yyyy"
                   onChangeText={value => change('date', value)} editable={!saving} autoCorrect={false} maxLength={10} /> : <TouchableOpacity
-                    accessibilityRole="button" accessibilityLabel="Chọn ngày cuộc họp" style={styles.pickerField} onPress={() => setPickerTarget('date')} disabled={saving}>
+                    accessibilityRole="button" accessibilityLabel="Chọn ngày cuộc họp" style={styles.pickerField} onPress={() => openPicker('date')} disabled={saving}>
                     <Text style={styles.pickerValue}>{fields.date}</Text>
                     <Ionicons name="calendar-outline" size={19} color="#00ADFC" />
                   </TouchableOpacity>}
@@ -94,7 +117,7 @@ export function EditMeetingModal({ meeting, suggestedTime, onClose, onSave }: Pr
                 <Text style={styles.label}>Giờ</Text>
                 {Platform.OS === 'web' ? <TextInput accessibilityLabel="Giờ cuộc họp" style={styles.input} value={fields.time} placeholder="hh:mm"
                   onChangeText={value => change('time', value)} editable={!saving} autoCorrect={false} maxLength={5} /> : <TouchableOpacity
-                    accessibilityRole="button" accessibilityLabel="Chọn giờ cuộc họp" style={styles.pickerField} onPress={() => setPickerTarget('time')} disabled={saving}>
+                    accessibilityRole="button" accessibilityLabel="Chọn giờ cuộc họp" style={styles.pickerField} onPress={() => openPicker('time')} disabled={saving}>
                     <Text style={styles.pickerValue}>{fields.time}</Text>
                     <Ionicons name="time-outline" size={19} color="#00ADFC" />
                   </TouchableOpacity>}
@@ -117,7 +140,7 @@ export function EditMeetingModal({ meeting, suggestedTime, onClose, onSave }: Pr
               <Text style={styles.saveText}>{saving ? 'Đang chuẩn bị giọng đọc…' : suggestedTime ? 'Lưu lịch mới' : 'Lưu thay đổi'}</Text>
             </TouchableOpacity>
             {saving ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để cập nhật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
-          </ScrollView>
+          </ScrollView>}
           </SafeAreaView>
         </KeyboardAvoidingView>
       </SafeAreaProvider>
@@ -140,29 +163,6 @@ export function EditMeetingModal({ meeting, suggestedTime, onClose, onSave }: Pr
       onDismiss={() => setPickerTarget(null)}
     /> : null}
 
-    {Platform.OS === 'ios' && pickerTarget ? <Modal transparent visible animationType="fade" onRequestClose={() => setPickerTarget(null)}>
-      <View style={styles.pickerBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setPickerTarget(null)} accessibilityRole="button" accessibilityLabel="Đóng bộ chọn ngày giờ" />
-        <View style={styles.pickerSheet}>
-          <View style={styles.pickerHeader}>
-            <Text style={styles.pickerHeading}>{pickerTarget === 'date' ? 'Chọn ngày' : 'Chọn giờ'}</Text>
-            <TouchableOpacity onPress={() => setPickerTarget(null)} accessibilityRole="button" accessibilityLabel="Xong">
-              <Text style={styles.pickerDone}>Xong</Text>
-            </TouchableOpacity>
-          </View>
-          <DateTimePicker
-            value={selectedDate}
-            mode={pickerTarget}
-            display={pickerTarget === 'date' ? 'inline' : 'spinner'}
-            locale="vi_VN"
-            themeVariant="light"
-            is24Hour
-            accentColor="#00ADFC"
-            onValueChange={(_event, date) => updatePickerValue(date)}
-          />
-        </View>
-      </View>
-    </Modal> : null}
   </>;
 }
 
@@ -171,23 +171,22 @@ const styles = StyleSheet.create({
   modalRoot: { flex: 1 },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10, 25, 47, 0.48)' },
   sheet: { maxHeight: '90%', backgroundColor: '#FFFFFF', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 22 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  heading: { fontSize: 22, fontFamily: 'Roboto', color: '#0A2540' },
-  close: { padding: 10 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 },
+  heading: { fontSize: 22, fontFamily: 'Roboto', color: '#0A2540', flex: 1, marginRight: 8 },
+  close: { padding: 10, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  formScroll: { flexShrink: 1 },
   label: { color: '#66788B', fontSize: 14, fontFamily: 'Roboto', marginBottom: 7, marginTop: 12 },
   input: { borderWidth: 1, borderColor: '#D7E5EC', borderRadius: 14, padding: 14, minHeight: 54, color: '#0A2540', backgroundColor: '#F8FBFD', fontSize: 16, fontFamily: 'Roboto' },
   title: { minHeight: 70, textAlignVertical: 'top' },
   pickerField: { borderWidth: 1, borderColor: '#D7E5EC', borderRadius: 14, paddingHorizontal: 14, minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F8FBFD' },
-  pickerValue: { color: '#0A2540', fontSize: 16, fontFamily: 'Roboto' },
-  row: { flexDirection: 'row', gap: 12 },
-  column: { flex: 1 },
+  pickerValue: { color: '#0A2540', fontSize: 16, fontFamily: 'Roboto', flexShrink: 1, marginRight: 8 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  column: { flex: 1, minWidth: 130 },
   error: { color: '#DC2626', marginTop: 12 },
   save: { backgroundColor: '#00ADFC', borderRadius: 15, alignItems: 'center', padding: 15, marginTop: 20 },
   disabled: { opacity: 0.5 },
   saveText: { color: '#FFFFFF', fontSize: 16, fontFamily: 'Roboto',  },
-  pickerBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(10, 25, 47, 0.48)' },
-  pickerSheet: { maxHeight: '90%', backgroundColor: '#FFFFFF', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 30 },
-  pickerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  pickerHeading: { color: '#0A2540', fontSize: 20, fontFamily: 'Roboto' },
+  pickerContent: { paddingBottom: 12 },
+  nativePicker: { width: '100%', minHeight: 216 },
   pickerDone: { color: '#00ADFC', fontSize: 16, fontFamily: 'Roboto' },
 });

@@ -1,6 +1,20 @@
 # Build IPA production trên GitHub macOS và upload tự động lên Apple
 
-Cập nhật: **17/10/2026**. Dự án: **iGen Check — Expo SDK 57**.
+Cập nhật: **06/11/2026**. Dự án: **iGen Check — Expo SDK 57**.
+
+## Bản cập nhật 1.0.1 sau khi app đã phát hành
+
+Đối chiếu App Store Việt Nam ngày 06/11/2026: app `6823442026`, bundle ID `com.igen.schedule`, đang công khai version **1.0**. Bản sửa chọn ngày/giờ và vùng an toàn màn voice được chuẩn bị với `expo.version = 1.0.1`; version trong package.json và package-lock.json được đồng bộ.
+
+- Version hiển thị trên App Store là **1.0.1**, được đặt trong app.json. `autoIncrement` không tự tăng giá trị này.
+- Build number do EAS quản lý remote với `autoIncrement: true`, dùng tiếp bộ đếm đã dùng khi phát hành bản trước. Không đặt lại bộ đếm về 1. Nếu có build từng upload ngoài luồng EAS, cần đồng bộ bộ đếm với số build đã dùng trên App Store Connect trước khi build tiếp.
+- Push develop chỉ chạy CI; merge/push production hoặc chạy thủ công trên production sẽ build IPA trên GitHub macOS rồi upload qua EAS Submit. Toàn bộ lần chạy production được xếp hàng cùng nhau giữa push và manual.
+- CI đối chiếu version trong IPA thật với app.json trước khi lưu artifact; job upload đối chiếu lại version, commit và SHA-256.
+- Sau khi Apple xử lý xong, kiểm tra hai lỗi trên iPhone qua TestFlight. Trong App Store Connect, mở **app iGen Check hiện có → App Store → dấu + cạnh iOS App → tạo version 1.0.1**, điền “What’s New”, chọn build 1.0.1 đã kiểm tra rồi gửi App Review. Upload thành công chưa tự phát hành bản cập nhật ra App Store.
+
+Các kiểm tra local không thay thế việc build IPA trên macOS và thử trên iPhone thật. Chỉnh sửa repository không tạo version hoặc gửi duyệt trên App Store Connect.
+
+Nguồn: [Apple: tạo version cập nhật](https://developer.apple.com/help/app-store-connect/update-your-app/create-a-new-version/), [Expo: version và build number](https://docs.expo.dev/build-reference/app-versions/).
 
 > Bản có widget cần chuẩn bị thêm App Group và provisioning profile của extension **trước lần build production đầu tiên**. Xem [Widget iOS](#widget-ios).
 
