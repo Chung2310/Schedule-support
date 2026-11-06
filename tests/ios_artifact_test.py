@@ -93,10 +93,17 @@ class ArtifactTests(unittest.TestCase):
                 return b"Xcode 26.5\nBuild version fixture"
             return b""
         with patch.object(CHECKER.sys, "platform", "darwin"), patch.object(CHECKER, "command", side_effect=fake_command) as commands:
-            result = CHECKER.validate_ipa(ipa)
+            result = CHECKER.validate_ipa(ipa, expected_version="1.0.0")
         self.assertEqual(result["version"], "1.0.0")
         self.assertEqual(len(result["sha256"]), 64)
         self.assertTrue(any(call.args[:4] == ("codesign", "--verify", "--deep", "--strict") for call in commands.call_args_list))
+
+    def test_previous_release_version_is_rejected_before_signing_checks(self):
+        ipa = self.archive(self.info())
+        with patch.object(CHECKER.sys, "platform", "darwin"), patch.object(CHECKER, "command") as commands:
+            with self.assertRaisesRegex(ValueError, "IPA version differs"):
+                CHECKER.validate_ipa(ipa, expected_version="1.0.1")
+            commands.assert_not_called()
 
 
 class WidgetArtifactTests(unittest.TestCase):

@@ -74,11 +74,14 @@ test('build uses a fixed production profile and local compiler with submission i
   assert.ok(!uploadArgs.includes('build'));
   assert.equal(prepareSubmitConfig(eas, {}).submit.production.ios.ascAppId, '6823442026');
   assert.throws(() => prepareSubmitConfig(eas, { ASC_APP_ID: '1234567890' }), /6823442026/);
-  const metadata = { bundleIdentifier: 'com.igen.schedule', displayName: 'iGen Check',
+  const metadata = { bundleIdentifier: 'com.igen.schedule', displayName: 'iGen Check', version: app.version,
     appleTeam: 'VP77TD9A77', commit: 'production-commit', sha256: 'a'.repeat(64) };
   assert.doesNotThrow(() => validateArtifact(metadata, metadata.sha256, { GITHUB_SHA: metadata.commit }));
   assert.throws(() => validateArtifact(metadata, 'b'.repeat(64), { GITHUB_SHA: metadata.commit }), /checksum/);
   assert.throws(() => validateArtifact(metadata, metadata.sha256, { GITHUB_SHA: 'another-commit' }), /different commit/);
+  assert.doesNotThrow(() => validateArtifact(metadata, metadata.sha256, { GITHUB_SHA: metadata.commit }, app.version));
+  assert.throws(() => validateArtifact({ ...metadata, version: '0.9.0' }, metadata.sha256,
+    { GITHUB_SHA: metadata.commit }, app.version), /IPA version/);
   assert.equal(build.steps.find((step) => step.name === 'Build signed production IPA locally').run, 'npm run build:ios');
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts['build:ios'], 'node scripts/build-ios.cjs');
@@ -121,6 +124,8 @@ test('build rejects wrong identity, signing settings and invalid public URLs', (
 });
 
 test('production builds serialize across triggers and validated artifacts are retained for seven days', () => {
+  assert.equal(workflow.concurrency.group, 'app-ci-ios-${{ github.ref }}');
+  assert.equal(workflow.concurrency['cancel-in-progress'], "${{ github.ref != 'refs/heads/production' }}");
   assert.equal(build.concurrency.group, 'ios-production-build');
   assert.equal(build.concurrency['cancel-in-progress'], false);
   const validation = build.steps.findIndex((step) => step.run?.includes('python3 scripts/check-ios-artifact.py'));
@@ -135,6 +140,17 @@ test('production builds serialize across triggers and validated artifacts are re
   const download = workflow.jobs['submit-ios'].steps.find((step) => step.uses?.startsWith('actions/download-artifact@'));
   assert.equal(download.with['artifact-ids'], '${{ needs.build-ios.outputs.ipa-artifact-id }}');
   assert.equal(download.with['merge-multiple'], true);
+});
+
+test('release version is consistent while the iOS build number remains remotely auto-incremented', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+  assert.match(app.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(pkg.version, app.version);
+  assert.equal(lock.version, app.version);
+  assert.equal(lock.packages[''].version, app.version);
+  assert.equal(eas.cli.appVersionSource, 'remote');
+  assert.equal(eas.build.production.autoIncrement, true);
 });
 
 test('IPA metadata and profile regression checks pass without a native build', () => {

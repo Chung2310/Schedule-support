@@ -3,7 +3,7 @@
     "name": "iGen Check",
     "slug": "schedule",
     "owner": "igen-technology",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/logomoi.png",
     "web": {
@@ -34,6 +34,7 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
+      "./plugins/withAndroidRelease.cjs",
       "expo-font",
       [
         "expo-notifications",

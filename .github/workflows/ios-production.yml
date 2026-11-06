@@ -15,7 +15,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-ci-ios-${{ github.event_name }}-${{ github.ref }}
+  # Serialize build and upload together, including manual and push releases.
+  group: app-ci-ios-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/production' }}
 
 jobs:
@@ -50,7 +51,7 @@ jobs:
           git diff --exit-code -- docs/index.html docs/privacy-policy.html
 
       - name: Check Expo dependencies and configuration
-        run: npx expo-doctor
+        run: npx --yes expo-doctor@1.21.6
 
       - name: Check generated iOS privacy and widget configuration
         run: npm run ios:check

@@ -173,26 +173,28 @@ test('one sentence can create separate meetings with different titles and times'
 });
 
 test('batch save rejects a collision before writing any occurrence', async () => {
-  const existing = [{ id: 'existing', title: 'Lịch cũ', meetingTime: new Date(2026, 9, 22, 17, 50).toISOString() }];
+  const future = Date.now() + 2 * 86_400_000;
+  const existing = [{ id: 'existing', title: 'Lịch cũ', meetingTime: new Date(future).toISOString() }];
   let writes = 0;
   const database = {
     getMeetings: async () => existing,
     addMeetings: async () => { writes += 1; return existing; },
   };
   const { StorageService } = createLoader({ './database': { DatabaseService: database } })('src/services/storage.ts');
-  const dates = [new Date(2026, 9, 21, 17, 50), new Date(2026, 9, 22, 17, 50)];
+  const dates = [new Date(future - 86_400_000), new Date(future)];
   await assert.rejects(StorageService.addMeetings(dates.map((date, index) => ({ id: String(index), meetingTime: date.toISOString() }))), /Trùng lịch/);
   assert.equal(writes, 0);
 });
 
 test('batch save checks collisions within the new items and writes a valid batch once', async () => {
+  const future = Date.now() + 86_400_000;
   const batches = [];
   const database = {
     getMeetings: async () => [],
     addMeetings: async meetings => { batches.push(meetings); return meetings; },
   };
   const { StorageService } = createLoader({ './database': { DatabaseService: database } })('src/services/storage.ts');
-  const meeting = (id, hour) => ({ id, title: id, meetingTime: new Date(2026, 9, 22, hour).toISOString() });
+  const meeting = (id, hour) => ({ id, title: id, meetingTime: new Date(future + hour * 3_600_000).toISOString() });
   await assert.rejects(StorageService.addMeetings([meeting('one', 9), meeting('two', 9)]), /Trùng lịch/);
   assert.equal(batches.length, 0);
   await StorageService.addMeetings([meeting('one', 9), meeting('two', 15)]);

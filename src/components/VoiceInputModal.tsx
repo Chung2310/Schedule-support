@@ -6,14 +6,13 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
-  KeyboardAvoidingView,
   Platform,
-  TouchableWithoutFeedback,
   Keyboard,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { STTService } from '../services/sttService';
 import { parseVietnameseVoiceSchedule } from '../services/nlpParser';
@@ -71,6 +70,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const [chosenMeeting, setChosenMeeting] = useState<{ transcript: string; id: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const { width, height, fontScale } = useWindowDimensions();
+  const compact = height < 740 || width < 360 || fontScale > 1.2;
   const currentMinute = useCurrentMinute();
   const commandNow = useMemo(() => { void transcript; return new Date(); }, [transcript]);
   const deleteCommand = useMemo(() => voiceDeleteCommand(transcript, meetings, commandNow), [transcript, meetings, commandNow]);
@@ -289,6 +290,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
 
   const handleClose = () => {
     if (savingRef.current) return;
+    Keyboard.dismiss();
     stopListening();
     onClose();
   };
@@ -375,13 +377,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     : !recognitionError && !timeConflict && !recurrenceError && !bulkError && !pastError && (!editCommand || !!editPreview?.meeting));
 
   return (
-    <Modal visible={visible} animationType="slide" onShow={handleModalShow} onRequestClose={handleClose}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.screen}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={styles.keyboardView}
-          >
+    <Modal visible={visible} presentationStyle="fullScreen" animationType="slide" onShow={handleModalShow} onRequestClose={handleClose}>
+      <SafeAreaProvider style={styles.screen}>
             <SafeAreaView style={styles.sheet} edges={['top', 'bottom']}>
               {/* Thanh kéo iOS */}
               <View style={styles.dragHandle} />
@@ -392,10 +389,12 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                 <TouchableOpacity
                   onPress={handleClose}
                   style={styles.closeBtn}
+                  disabled={saving}
                   activeOpacity={0.7}
+                  accessibilityRole="button"
                   accessibilityLabel="Đóng"
                 >
-                  <Ionicons name="close" size={18} color="#64748B" />
+                  <Ionicons name="close" size={22} color="#64748B" />
                 </TouchableOpacity>
               </View>
 
@@ -403,10 +402,13 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
                 style={styles.formScroll}
                 contentContainerStyle={styles.formContent}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+                contentInsetAdjustmentBehavior="never"
               >
               {/* Khu vực Micro đơn giản, rõ ràng */}
               <View style={styles.micContainer}>
-                <ListeningFace active={isListening} size={205} />
+                <ListeningFace active={isListening} size={compact ? 145 : 205} />
                 {speechBusy ? <Text style={styles.listeningHeadline} accessibilityLiveRegion="polite">
                   {isListening ? 'Tôi đang nghe đây...' : isStarting ? 'Đang chuẩn bị micro...' : 'Đang hoàn tất nhận diện...'}
                 </Text> : null}
@@ -575,9 +577,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
               {saving && !deleteCommand ? <Text style={styles.savingHint}>Giữ app mở đến khi hoàn tất để bật giọng đọc nhắc lịch khi khóa màn hình.</Text> : null}
               </ScrollView>
             </SafeAreaView>
-          </KeyboardAvoidingView>
-        </View>
-      </TouchableWithoutFeedback>
+      </SafeAreaProvider>
     </Modal>
   );
 };
@@ -588,11 +588,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  keyboardView: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'flex-end',
-  },
   sheet: {
     flex: 1,
     backgroundColor: '#FFFFFF',
@@ -600,8 +595,8 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 12,
   },
-  formScroll: { flex: 1 },
-  formContent: { flexGrow: 1 },
+  formScroll: { flex: 1, minHeight: 0 },
+  formContent: { flexGrow: 1, paddingBottom: 16 },
   dragHandle: {
     width: 36,
     height: 4,
@@ -615,15 +610,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 14,
+    flexShrink: 0,
   },
   headerTitle: {
     fontSize: 17, fontFamily: 'Roboto',
     color: '#0A2540',
+    flex: 1,
+    marginRight: 12,
   },
   closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 44,
+    height: 44,
+    flexShrink: 0,
+    borderRadius: 22,
     backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
@@ -632,7 +631,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexGrow: 1,
-    minHeight: 320,
     marginVertical: 10,
     gap: 12,
   },
